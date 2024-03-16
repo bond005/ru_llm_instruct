@@ -107,5 +107,10 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                         task_name = KNOWN_TASKS[task_id][1]
                     if task_name not in res:
                         res[task_name] = []
-                    res[task_name].append((input_text, target_text))
+                    res[task_name].append(
+                        (
+                            input_text.replace('\r\n', '\n'),
+                            target_text.replace('\r\n', '\n')
+                        )
+                    )
     return res
