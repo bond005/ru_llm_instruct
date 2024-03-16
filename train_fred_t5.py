@@ -221,18 +221,13 @@ def main():
     fredt5_logger.info(f'United recognition score before training is {best_score}.')
     for cur_task in tasks_for_validation:
         fredt5_logger.info(f'Recognition results for the task {cur_task} before training:')
-        cur_score, printed_results = results_by_tasks[cur_task]
+        cur_score, _ = results_by_tasks[cur_task]
         if cur_task == 'asr_correction':
             fredt5_logger.info('Word accuracy is {0:.5%}.'.format(cur_score))
         elif cur_task == 'segmentation':
             fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(cur_score))
         else:
             fredt5_logger.info('RoBERTa F1 is {0:.6f}.'.format(cur_score))
-        for predicted_trans, target_trans in printed_results:
-            info_msg = f'    PREDICTED: {predicted_trans}'
-            fredt5_logger.info(info_msg)
-            info_msg = f'    TARGET:    {target_trans}'
-            fredt5_logger.info(info_msg)
 
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
@@ -267,18 +262,13 @@ def main():
         fredt5_logger.info(f'Epoch {epoch}: united recognition score is {cur_score}.')
         for cur_task in tasks_for_validation:
             fredt5_logger.info(f'Epoch {epoch}: recognition results for the task {cur_task}:')
-            cur_score, printed_results = results_by_tasks[cur_task]
+            cur_score, _ = results_by_tasks[cur_task]
             if cur_task == 'asr_correction':
                 fredt5_logger.info('Epoch {0}: word accuracy is {1:.5%}.'.format(epoch, cur_score))
             elif cur_task == 'segmentation':
                 fredt5_logger.info('Epoch {0}: paragraph accuracy is {1:.5%}.'.format(epoch, cur_score))
             else:
                 fredt5_logger.info('Epoch {0}: RoBERTa F1 is {1:.6f}.'.format(epoch, cur_score))
-            for predicted_trans, target_trans in printed_results:
-                info_msg = f'    PREDICTED: {predicted_trans}'
-                fredt5_logger.info(info_msg)
-                info_msg = f'    TARGET:    {target_trans}'
-                fredt5_logger.info(info_msg)
         if cur_score > best_score:
             best_score = cur_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)

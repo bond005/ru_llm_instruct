@@ -55,13 +55,13 @@ KNOWN_TASKS = [
 
 def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                             config: GenerationConfig, model: T5ForConditionalGeneration) -> (
-        Tuple)[float, List[Tuple[str, str]]]:
+        Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
     n_total_word_dist = 0
     n_total_words = 0
     for input_text, target_text in tqdm(data_for_validation):
         predicted_text = fix_recognition_error(input_text, tokenizer, config, model)
-        printed_results.append((predicted_text, target_text))
+        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text})
         target_words = wordpunct_tokenize(target_text)
         cur_dist = levenshtein(wordpunct_tokenize(predicted_text), target_words)
         cur_word_number = len(target_words)
@@ -79,13 +79,13 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
 
 def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                           config: GenerationConfig, model: T5ForConditionalGeneration) -> (
-        Tuple)[float, List[Tuple[str, str]]]:
+        Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
     n_total_paragraph_dist = 0
     n_total_paragraphs = 0
     for input_text, target_text in tqdm(data_for_validation):
         predicted_text = generate_answer(input_text, tokenizer, config, model)
-        printed_results.append((predicted_text, target_text))
+        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text})
         predicted_paragraphs = list(map(
             lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
             filter(
@@ -155,7 +155,8 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             err_msg = (f'The target named entities do not correspond to the text! Text: "{input_text_without_prompt}". '
                        f'Entities: {target_named_entities}')
             raise ValueError(err_msg)
-        printed_results.append((predicted_named_entities, target_named_entities))
+        printed_results.append({'INPUT': input_text,
+                                'PREDICTED': predicted_named_entities, 'TRUE': target_named_entities})
     y_true = [[x[1] for x in cur[1]] for cur in printed_results]
     y_pred = [[x[1] for x in cur[0]] for cur in printed_results]
     if len(printed_results) > 5:
@@ -167,7 +168,7 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                       config: GenerationConfig, model: T5ForConditionalGeneration,
                       scorer: Tuple[RobertaTokenizer, RobertaModel, int, List[str]]) -> (
-        Tuple)[float, List[Tuple[str, str]]]:
+        Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
     candidates = []
     references = []
@@ -184,7 +185,7 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         candidates.append(scorer[0].decode(predicted_tokens, skip_special_tokens=True))
         references.append(scorer[0].decode(target_tokens, skip_special_tokens=True))
         del predicted_tokens, target_tokens, predicted_text
-        printed_results.append((candidates[-1], references[-1]))
+        printed_results.append({'INPUT': input_text, 'PREDICTED': candidates[-1], 'TRUE': references[-1]})
     if len(printed_results) > 5:
         printed_results = random.sample(printed_results, k=5)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
@@ -211,7 +212,7 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
              tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration,
              intelligent_scorer: Tuple[RobertaTokenizer, RobertaModel, int, List[str]]) -> (
-        Tuple)[float, Dict[str, Tuple[float, List[Tuple[str, str]]]]]:
+        Tuple)[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
     for task in data_for_validation:
