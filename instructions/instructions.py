@@ -157,8 +157,8 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             raise ValueError(err_msg)
         printed_results.append({'INPUT': input_text,
                                 'PREDICTED': predicted_named_entities, 'TRUE': target_named_entities})
-    y_true = [[x[1] for x in cur[1]] for cur in printed_results]
-    y_pred = [[x[1] for x in cur[0]] for cur in printed_results]
+    y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
+    y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
     if len(printed_results) > 5:
         printed_results = random.sample(printed_results, k=5)
     f1 = f1_score(y_true, y_pred)
