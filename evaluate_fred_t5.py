@@ -5,15 +5,13 @@ import logging
 import os
 import random
 import sys
-from typing import List, Tuple
 
 import numpy as np
-from tqdm import tqdm, trange
-from transformers import T5ForConditionalGeneration, GPT2Tokenizer, Adafactor, GenerationConfig
+from transformers import T5ForConditionalGeneration, GPT2Tokenizer, GenerationConfig
 import torch
 
 from instructions.instructions import evaluate, load_evaluator
-from training.training import sample_batch, load_trainset
+from training.training import load_trainset
 
 
 fredt5_logger = logging.getLogger(__name__)
