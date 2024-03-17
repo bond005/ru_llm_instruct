@@ -167,6 +167,7 @@ def main():
         pad_token_id=tokenizer.pad_token_id
     )
     generation_config.save_pretrained(finetuned_dir_name)
+    fredt5_logger.info(f'{generation_config}')
 
     optimizer = Adafactor(
         params=[p for p in model.parameters() if p.requires_grad],
@@ -226,8 +227,10 @@ def main():
             fredt5_logger.info('Word accuracy is {0:.5%}.'.format(cur_score))
         elif cur_task == 'segmentation':
             fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(cur_score))
+        elif cur_task.startswith('ner_'):
+            fredt5_logger.info(' F1 by entities is {0:.6f}.'.format(cur_score))
         else:
-            fredt5_logger.info('RoBERTa F1 is {0:.6f}.'.format(cur_score))
+            fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
 
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
@@ -267,11 +270,15 @@ def main():
                 fredt5_logger.info('Epoch {0}: word accuracy is {1:.5%}.'.format(epoch, cur_score))
             elif cur_task == 'segmentation':
                 fredt5_logger.info('Epoch {0}: paragraph accuracy is {1:.5%}.'.format(epoch, cur_score))
+            elif cur_task.startswith('ner_'):
+                fredt5_logger.info('Epoch {0}: F1 by entities is {1:.6f}.'.format(epoch, cur_score))
             else:
-                fredt5_logger.info('Epoch {0}: RoBERTa F1 is {1:.6f}.'.format(epoch, cur_score))
+                fredt5_logger.info('Epoch {0}: BERT-score F1 is {1:.6f}.'.format(epoch, cur_score))
         if cur_score > best_score:
             best_score = cur_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)
+            model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=True)
+            generation_config.save_pretrained(finetuned_dir_name)
             fredt5_logger.info(f'The model is updated with score = {best_score}.')
 
 
@@ -283,7 +290,7 @@ if __name__ == '__main__':
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(formatter)
     fredt5_logger.addHandler(stdout_handler)
-    file_handler = logging.FileHandler('fredt5_nlp_ru_training.log')
+    file_handler = logging.FileHandler('fredt5_instruct_training.log')
     file_handler.setFormatter(formatter)
     fredt5_logger.addHandler(file_handler)
     main()

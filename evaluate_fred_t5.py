@@ -178,9 +178,9 @@ def main():
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
-    fredt5_logger.info(f'United recognition score before training is {best_score}.')
+    fredt5_logger.info(f'United recognition score is {best_score}.')
     for cur_task in tasks_for_validation:
-        fredt5_logger.info(f'Recognition results for the task {cur_task} before training:')
+        fredt5_logger.info(f'Recognition results for the task {cur_task}:')
         cur_score, printed_results = results_by_tasks[cur_task]
         printed_results_for_json = []
         for old_item in printed_results:
@@ -212,7 +212,7 @@ if __name__ == '__main__':
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(formatter)
     fredt5_logger.addHandler(stdout_handler)
-    file_handler = logging.FileHandler('fredt5_nlp_ru_evaluation.log')
+    file_handler = logging.FileHandler('fredt5_instruct_evaluation.log')
     file_handler.setFormatter(formatter)
     fredt5_logger.addHandler(file_handler)
     main()
