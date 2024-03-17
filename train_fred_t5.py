@@ -164,7 +164,8 @@ def main():
         early_stopping=True, do_sample=False, num_beams=6,
         max_length=3 + round(1.2 * max_text_len),
         eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id
+        pad_token_id=tokenizer.pad_token_id,
+        bos_token_id=tokenizer.bos_token_id
     )
     generation_config.save_pretrained(finetuned_dir_name)
     fredt5_logger.info(f'{generation_config}')
@@ -228,7 +229,7 @@ def main():
         elif cur_task == 'segmentation':
             fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(cur_score))
         elif cur_task.startswith('ner_'):
-            fredt5_logger.info(' F1 by entities is {0:.6f}.'.format(cur_score))
+            fredt5_logger.info('F1 by entities is {0:.6f}.'.format(cur_score))
         else:
             fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
 
