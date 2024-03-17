@@ -82,8 +82,8 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                     if len(row) != len(loaded_header):
                         err_msg += f' The row size is impossible! Expected {len(loaded_header)}, got {len(row)}.'
                         raise ValueError(err_msg)
-                    input_text = row[0]
-                    target_text = row[1]
+                    input_text = row[0].strip()
+                    target_text = row[1].strip()
                     if not input_text.startswith('<LM>'):
                         err_msg += f' The input text is impossible! It must be started with <LM>. {input_text}'
                         raise ValueError(err_msg)
@@ -100,17 +100,35 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                     for idx, val in enumerate(KNOWN_TASKS):
                         if input_text[4:].startswith(val[0]):
                             task_id = idx
+                            prompt = val[0]
+                            context = input_text[(4 + len(val[0])):].strip()
+                            while context.startswith('-'):
+                                context = context[1:].strip()
+                            if len(context) == 0:
+                                err_msg += f' The command context is empty! {input_text}'
+                                raise ValueError(err_msg)
+                            input_text = '<LM>' + prompt.strip() + ' ' + context
                             break
                     if task_id < 0:
                         task_name = 'unknown'
+                        instruction = input_text[4:].strip()
+                        while instruction.startswith('-'):
+                            instruction = instruction[1:].strip()
+                        if len(instruction) == 0:
+                            err_msg += f' The instruction is empty! {input_text}'
+                            raise ValueError(err_msg)
+                        input_text = '<LM>' + instruction
                     else:
                         task_name = KNOWN_TASKS[task_id][1]
+                    input_text = input_text.replace('\r\n', '\n')
+                    target_text = target_text.strip()
+                    while target_text.startswith('-'):
+                        target_text = target_text[1:].strip()
+                    if len(target_text) == 0:
+                        err_msg += f' The target is empty! {target_text}'
+                        raise ValueError(err_msg)
+                    target_text = target_text.replace('\r\n', '\n')
                     if task_name not in res:
                         res[task_name] = []
-                    res[task_name].append(
-                        (
-                            input_text.replace('\r\n', '\n'),
-                            target_text.replace('\r\n', '\n')
-                        )
-                    )
+                    res[task_name].append((input_text, target_text))
     return res
