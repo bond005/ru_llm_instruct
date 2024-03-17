@@ -109,18 +109,19 @@ def main():
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
-    tasks_for_training = sorted(list(data_for_training))
+    tasks_for_training = sorted(list(data_for_training.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_training)} tasks for training.')
     for cur_task in tasks_for_training:
         fredt5_logger.info(f'There are {len(data_for_training[cur_task])} training samples for task {cur_task}.')
         n_training_samples += len(data_for_training[cur_task])
         for text_pair in data_for_training[cur_task]:
-            united_text_corpus.append(text_pair[0][4:])
-            united_text_corpus.append(text_pair[1][:-4])
-            if len(text_pair[0]) > max_text_len:
-                max_text_len = len(text_pair[0])
-            if len(text_pair[1]) > max_text_len:
-                max_text_len = len(text_pair[1])
+            if cur_task != 'asr_correction':
+                united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
+                if len(united_text_corpus[-1]) > max_text_len:
+                    max_text_len = len(united_text_corpus[-1])
+            united_text_corpus.append(' '.join(text_pair[1][:-4].strip().split()))
+            if len(united_text_corpus[-1]) > max_text_len:
+                max_text_len = len(united_text_corpus[-1])
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
 
     try:
@@ -128,17 +129,18 @@ def main():
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
-    tasks_for_validation = sorted(list(data_for_validation))
+    tasks_for_validation = sorted(list(data_for_validation.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_validation)} tasks for validation.')
     for cur_task in tasks_for_validation:
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
         for text_pair in data_for_validation[cur_task]:
-            united_text_corpus.append(text_pair[0][4:])
-            united_text_corpus.append(text_pair[1][:-4])
-            if len(text_pair[0]) > max_text_len:
-                max_text_len = len(text_pair[0])
-            if len(text_pair[1]) > max_text_len:
-                max_text_len = len(text_pair[1])
+            if cur_task != 'asr_correction':
+                united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
+                if len(united_text_corpus[-1]) > max_text_len:
+                    max_text_len = len(united_text_corpus[-1])
+            united_text_corpus.append(' '.join(text_pair[1][:-4].strip().split()))
+            if len(united_text_corpus[-1]) > max_text_len:
+                max_text_len = len(united_text_corpus[-1])
 
     united_text_corpus = sorted(list(set(united_text_corpus)))
     fredt5_logger.info(f'There are {len(united_text_corpus)} unique texts. The maximal text length is {max_text_len}.')
@@ -165,7 +167,7 @@ def main():
         max_length=3 + round(1.2 * max_text_len),
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.pad_token_id,
-        bos_token_id=tokenizer.bos_token_id
+        decoder_start_token_id=tokenizer.pad_token_id
     )
     generation_config.save_pretrained(finetuned_dir_name)
     fredt5_logger.info(f'{generation_config}')

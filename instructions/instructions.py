@@ -194,16 +194,26 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
     del texts_for_idf
-    all_preds = bert_cos_score_idf(
-        scorer[1],
-        references,
-        candidates,
-        tokenizer,
-        idf_dict,
-        device=scorer[1].device,
-        batch_size=scorer[2],
-        all_layers=False
-    ).cpu()
+    try:
+        all_preds = bert_cos_score_idf(
+            scorer[1],
+            references,
+            candidates,
+            tokenizer,
+            idf_dict,
+            device=scorer[1].device,
+            batch_size=scorer[2],
+            all_layers=False
+        ).cpu()
+    except:
+        indices = random.sample(population=list(range(len(references))), k=5)
+        for idx in indices:
+            print('')
+            print('TRUE:')
+            print(references[idx])
+            print('PREDICTED:')
+            print(candidates[idx])
+        raise
     f1_list = all_preds[..., 2].numpy().tolist()
     if len(references) != len(f1_list):
         err_msg = f'The true answers do not correspond to the BERT scores! {len(references)} != {len(f1_list)}.'
