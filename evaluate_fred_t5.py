@@ -164,13 +164,7 @@ def main():
     max_text_len = max([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
 
-    generation_config = GenerationConfig(
-        early_stopping=True, do_sample=False, num_beams=6,
-        max_length=3 + round(1.2 * max_text_len),
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id
-    )
-    generation_config.save_pretrained(fredt5_name)
+    generation_config = GenerationConfig.from_pretrained(fredt5_name)
     fredt5_logger.info(f'{generation_config}')
 
     try:
