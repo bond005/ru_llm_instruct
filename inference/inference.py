@@ -22,4 +22,4 @@ def generate_answer(answer: str, tokenizer: GPT2Tokenizer, config: GenerationCon
     x = tokenizer(answer, return_tensors='pt', padding=True).to(model.device)
     out = model.generate(**x, generation_config=config)
     res = tokenizer.decode(out[0], skip_special_tokens=True).strip()
-    return res.strip()
+    return res.replace('\r\n', '\n')

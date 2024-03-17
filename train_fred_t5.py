@@ -157,7 +157,7 @@ def main():
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
     tokenizer.save_pretrained(finetuned_dir_name)
-    max_text_len = max([len(tokenizer.tokenize(it)) for it in united_text_corpus])
+    max_text_len = max([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
 
     generation_config = GenerationConfig(
@@ -174,7 +174,7 @@ def main():
         scale_parameter=False,
         relative_step=False,
         warmup_init=False,
-        lr=1e-4,
+        lr=args.learning_rate,
         clip_threshold=1.0
     )
     max_epochs = 200
