@@ -5,8 +5,10 @@ import logging
 import os
 import random
 import sys
+from typing import List, Union
 
 import numpy as np
+from tqdm import tqdm
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, GenerationConfig
 import torch
 
@@ -15,6 +17,19 @@ from training.training import load_trainset
 
 
 fredt5_logger = logging.getLogger(__name__)
+
+
+def process_multiline(s: str) -> Union[str, List[str]]:
+    lines = list(filter(
+        lambda it2: len(it2) > 0,
+        map(
+            lambda it1: ' '.join(it1.strip().split()).strip(),
+            s.split('\n')
+        )
+    ))
+    if len(lines) > 1:
+        return lines
+    return ' '.join(s.split())
 
 
 def main():
@@ -146,7 +161,17 @@ def main():
     tokenizer = GPT2Tokenizer.from_pretrained(fredt5_name)
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(fredt5_name)}" is loaded.')
 
-    generation_config = GenerationConfig.from_pretrained(fredt5_name)
+    max_text_len = max([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
+    fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
+
+    generation_config = GenerationConfig(
+        early_stopping=True, do_sample=False, num_beams=6,
+        max_length=3 + round(1.2 * max_text_len),
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id
+    )
+    generation_config.save_pretrained(fredt5_name)
+    fredt5_logger.info(f'{generation_config}')
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)
@@ -157,12 +182,23 @@ def main():
     for cur_task in tasks_for_validation:
         fredt5_logger.info(f'Recognition results for the task {cur_task} before training:')
         cur_score, printed_results = results_by_tasks[cur_task]
+        printed_results_for_json = []
+        for old_item in printed_results:
+            new_item = {
+                'INPUT': process_multiline(old_item['INPUT']),
+                'PREDICTED': process_multiline(old_item['PREDICTED']),
+                'TRUE': process_multiline(old_item['TRUE'])
+            }
+            printed_results_for_json.append(new_item)
         if cur_task == 'asr_correction':
             fredt5_logger.info('Word accuracy is {0:.5%}.'.format(cur_score))
         elif cur_task == 'segmentation':
             fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(cur_score))
+        if cur_task.startswith('ner_'):
+            fredt5_logger.info('F1 by entities is {0:.6f}.'.format(cur_score))
         else:
-            fredt5_logger.info('RoBERTa F1 is {0:.6f}.'.format(cur_score))
+            fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
+        results_by_tasks[cur_task] = (cur_score, printed_results_for_json)
 
     with codecs.open(report_name, mode='w', encoding='utf-8', errors='ignore') as fp:
         json.dump(obj=results_by_tasks, fp=fp, ensure_ascii=False, indent=4)

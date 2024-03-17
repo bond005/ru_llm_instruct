@@ -18,6 +18,7 @@ from ner.ner import find_entities_in_text
 from utils.utils import levenshtein
 
 
+MAX_PRINTED_SAMPLES: int = 10
 KNOWN_TASKS = [
     (
         'Исправь, пожалуйста, ошибки распознавания речи в следующем тексте.',
@@ -68,8 +69,8 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
         n_total_word_dist += cur_dist
         n_total_words += cur_word_number
         del target_words
-    if len(printed_results) > 5:
-        printed_results = random.sample(printed_results, k=5)
+    if len(printed_results) > MAX_PRINTED_SAMPLES:
+        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     if n_total_words > 0:
         wer = n_total_word_dist / float(n_total_words)
     else:
@@ -104,8 +105,8 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
         cur_paragraph_number = len(target_paragraphs)
         n_total_paragraph_dist += cur_dist
         n_total_paragraphs += cur_paragraph_number
-    if len(printed_results) > 5:
-        printed_results = random.sample(printed_results, k=5)
+    if len(printed_results) > MAX_PRINTED_SAMPLES:
+        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     if n_total_paragraphs > 0:
         per = n_total_paragraph_dist / float(n_total_paragraphs)
     else:
@@ -114,7 +115,7 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
 
 
 def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, tokenizer: GPT2Tokenizer,
-                 config: GenerationConfig, model: T5ForConditionalGeneration) -> Tuple[float, List[Tuple[str, str]]]:
+                 config: GenerationConfig, model: T5ForConditionalGeneration) -> Tuple[float, List[Dict[str, str]]]:
     printed_results = []
     prompt_tail = ' и выпиши список таких сущностей.'
     for input_text, target_text in tqdm(data_for_validation):
@@ -155,12 +156,15 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             err_msg = (f'The target named entities do not correspond to the text! Text: "{input_text_without_prompt}". '
                        f'Entities: {target_named_entities}')
             raise ValueError(err_msg)
-        printed_results.append({'INPUT': input_text,
-                                'PREDICTED': predicted_named_entities, 'TRUE': target_named_entities})
+        printed_results.append({
+            'INPUT': input_text,
+            'PREDICTED': predicted_named_entities,
+            'TRUE': target_named_entities
+        })
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
-    if len(printed_results) > 5:
-        printed_results = random.sample(printed_results, k=5)
+    if len(printed_results) > MAX_PRINTED_SAMPLES:
+        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     f1 = f1_score(y_true, y_pred)
     return f1, printed_results
 
@@ -186,8 +190,8 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         references.append(scorer[0].decode(target_tokens, skip_special_tokens=True))
         del predicted_tokens, target_tokens, predicted_text
         printed_results.append({'INPUT': input_text, 'PREDICTED': candidates[-1], 'TRUE': references[-1]})
-    if len(printed_results) > 5:
-        printed_results = random.sample(printed_results, k=5)
+    if len(printed_results) > MAX_PRINTED_SAMPLES:
+        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
     del texts_for_idf
     all_preds = bert_cos_score_idf(
