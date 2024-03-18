@@ -1,3 +1,4 @@
+import math
 from argparse import ArgumentParser
 import logging
 import os
@@ -208,14 +209,49 @@ def main():
     fredt5_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
     if args.testsize is not None:
-        if args.testsize < 5:
+        if args.testsize < 6:
             err_msg = (f'The maximal number of validation samples per validated task is too small! '
-                       f'Expected 5 or greater, got {args.testsize}.')
+                       f'Expected 6 or greater, got {args.testsize}.')
             fredt5_logger.error(err_msg)
             raise ValueError(err_msg)
         for task in data_for_validation:
-            if len(data_for_validation[task]) > args.testsize:
-                data_for_validation[task] = random.sample(data_for_validation[task], k=args.testsize)
+            if task.startswith('ner_'):
+                samples_with_ne = list(filter(
+                    lambda it: it[1].find('нет именованных сущностей такого типа') < 0,
+                    data_for_validation[task]
+                ))
+                samples_without_ne = list(filter(
+                    lambda it: it[1].find('нет именованных сущностей такого типа') >= 0,
+                    data_for_validation[task]
+                ))
+                if (len(samples_with_ne) + len(samples_without_ne)) != len(data_for_validation[task]):
+                    err_msg = f'The data for task {task} is incorrect!'
+                    fredt5_logger.error(err_msg)
+                    raise ValueError(err_msg)
+                if len(samples_with_ne) == 0:
+                    err_msg = f'The data for task {task} is incorrect!'
+                    fredt5_logger.error(err_msg)
+                    raise ValueError(err_msg)
+                if len(samples_without_ne) == 0:
+                    err_msg = f'The data for task {task} is incorrect!'
+                    fredt5_logger.error(err_msg)
+                    raise ValueError(err_msg)
+                if len(data_for_validation[task]) > args.testsize:
+                    if len(samples_with_ne) > math.ceil(args.testsize / 2):
+                        samples_for_ner = random.sample(samples_with_ne, k=math.ceil(args.testsize / 2))
+                    else:
+                        samples_for_ner = samples_with_ne
+                    if len(samples_without_ne) > (args.testsize - len(samples_for_ner)):
+                        samples_for_ner += random.sample(samples_without_ne, k=args.testsize - len(samples_for_ner))
+                    else:
+                        samples_for_ner += samples_without_ne
+                    del data_for_validation[task]
+                    data_for_validation[task] = samples_for_ner
+                    del samples_for_ner
+                del samples_with_ne, samples_without_ne
+            else:
+                if len(data_for_validation[task]) > args.testsize:
+                    data_for_validation[task] = random.sample(data_for_validation[task], k=args.testsize)
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)
@@ -225,15 +261,15 @@ def main():
     fredt5_logger.info(f'United recognition score before training is {best_score}.')
     for cur_task in tasks_for_validation:
         fredt5_logger.info(f'Recognition results for the task {cur_task} before training:')
-        cur_score, _ = results_by_tasks[cur_task]
+        instant_score, _ = results_by_tasks[cur_task]
         if cur_task == 'asr_correction':
-            fredt5_logger.info('Word accuracy is {0:.5%}.'.format(cur_score))
+            fredt5_logger.info('Word accuracy is {0:.5%}.'.format(instant_score))
         elif cur_task == 'segmentation':
-            fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(cur_score))
+            fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(instant_score))
         elif cur_task.startswith('ner_'):
-            fredt5_logger.info('F1 by entities is {0:.6f}.'.format(cur_score))
+            fredt5_logger.info('F1 by entities is {0:.6f}.'.format(instant_score))
         else:
-            fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
+            fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(instant_score))
 
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
@@ -268,15 +304,15 @@ def main():
         fredt5_logger.info(f'Epoch {epoch}: united recognition score is {cur_score}.')
         for cur_task in tasks_for_validation:
             fredt5_logger.info(f'Epoch {epoch}: recognition results for the task {cur_task}:')
-            cur_score, _ = results_by_tasks[cur_task]
+            instant_score, _ = results_by_tasks[cur_task]
             if cur_task == 'asr_correction':
-                fredt5_logger.info('Epoch {0}: word accuracy is {1:.5%}.'.format(epoch, cur_score))
+                fredt5_logger.info('Epoch {0}: word accuracy is {1:.5%}.'.format(epoch, instant_score))
             elif cur_task == 'segmentation':
-                fredt5_logger.info('Epoch {0}: paragraph accuracy is {1:.5%}.'.format(epoch, cur_score))
+                fredt5_logger.info('Epoch {0}: paragraph accuracy is {1:.5%}.'.format(epoch, instant_score))
             elif cur_task.startswith('ner_'):
-                fredt5_logger.info('Epoch {0}: F1 by entities is {1:.6f}.'.format(epoch, cur_score))
+                fredt5_logger.info('Epoch {0}: F1 by entities is {1:.6f}.'.format(epoch, instant_score))
             else:
-                fredt5_logger.info('Epoch {0}: BERT-score F1 is {1:.6f}.'.format(epoch, cur_score))
+                fredt5_logger.info('Epoch {0}: BERT-score F1 is {1:.6f}.'.format(epoch, instant_score))
         if cur_score > best_score:
             best_score = cur_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)

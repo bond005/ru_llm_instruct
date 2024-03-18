@@ -163,9 +163,11 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
         })
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
+    f1 = f1_score(y_true, y_pred)
     if len(printed_results) > MAX_PRINTED_SAMPLES:
         printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
-    f1 = f1_score(y_true, y_pred)
+    printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
+                       for it in printed_results]
     return f1, printed_results
 
 
