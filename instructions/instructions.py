@@ -17,7 +17,6 @@ from ner.ner import find_entities_in_text
 from utils.utils import levenshtein
 
 
-MAX_PRINTED_SAMPLES: int = 10
 KNOWN_TASKS = [
     (
         'Исправь, пожалуйста, ошибки распознавания речи в следующем тексте.',
@@ -68,8 +67,6 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
         n_total_word_dist += cur_dist
         n_total_words += cur_word_number
         del target_words
-    if len(printed_results) > MAX_PRINTED_SAMPLES:
-        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     if n_total_words > 0:
         wer = n_total_word_dist / float(n_total_words)
     else:
@@ -104,8 +101,6 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
         cur_paragraph_number = len(target_paragraphs)
         n_total_paragraph_dist += cur_dist
         n_total_paragraphs += cur_paragraph_number
-    if len(printed_results) > MAX_PRINTED_SAMPLES:
-        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     if n_total_paragraphs > 0:
         per = n_total_paragraph_dist / float(n_total_paragraphs)
     else:
@@ -163,8 +158,6 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
     f1 = f1_score(y_true, y_pred)
-    if len(printed_results) > MAX_PRINTED_SAMPLES:
-        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
     printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
                        for it in printed_results]
     return f1, printed_results
