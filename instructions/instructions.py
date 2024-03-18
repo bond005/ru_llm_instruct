@@ -10,8 +10,7 @@ from seqeval.metrics import f1_score
 from scipy.stats import hmean
 import torch
 from tqdm import tqdm
-from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration, T5EncoderModel
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
@@ -173,7 +172,7 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                       config: GenerationConfig, model: T5ForConditionalGeneration,
-                      scorer: Tuple[RobertaTokenizer, RobertaModel, int, List[str]]) -> (
+                      scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
         Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
     candidates = []
@@ -182,18 +181,11 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
     for input_text, target_text in data_for_validation:
         predicted_text = generate_answer(input_text, tokenizer, config, model)
         texts_for_idf.append(predicted_text)
-        predicted_tokens = scorer[0].encode(predicted_text, add_special_tokens=True)
-        if len(predicted_tokens) > (model.config.max_length - 2):
-            predicted_tokens = predicted_tokens[0:(model.config.max_length - 2)]
-        target_tokens = scorer[0].encode(target_text, add_special_tokens=True)
-        if len(target_tokens) > (model.config.max_length - 2):
-            target_tokens = target_tokens[0:(model.config.max_length - 2)]
-        candidates.append(scorer[0].decode(predicted_tokens, skip_special_tokens=True))
-        references.append(scorer[0].decode(target_tokens, skip_special_tokens=True))
-        del predicted_tokens, target_tokens, predicted_text
-        printed_results.append({'INPUT': input_text, 'PREDICTED': candidates[-1], 'TRUE': references[-1]})
-    if len(printed_results) > MAX_PRINTED_SAMPLES:
-        printed_results = random.sample(printed_results, k=MAX_PRINTED_SAMPLES)
+        candidates.append(predicted_text)
+        references.append(target_text)
+        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text})
+    if len(printed_results) > 5:
+        printed_results = random.sample(printed_results, k=5)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
     del texts_for_idf
     try:
@@ -227,7 +219,7 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
 
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
              tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration,
-             intelligent_scorer: Tuple[RobertaTokenizer, RobertaModel, int, List[str]]) -> (
+             intelligent_scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
         Tuple)[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
@@ -248,17 +240,12 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
 
 
 def load_evaluator(model_path: str, evaluation_batch_size: int,
-                   corpus: List[str]) -> Tuple[RobertaTokenizer, RobertaModel, int, List[str]]:
-    num_layers = 19
-    max_num_layers = 24
-    tokenizer = RobertaTokenizer.from_pretrained(model_path)
-    model = RobertaModel.from_pretrained(model_path).cuda()
+                   corpus: List[str]) -> Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]:
+    tokenizer = GPT2Tokenizer.from_pretrained(model_path)
+    model = T5EncoderModel.from_pretrained(model_path).cuda()
     model.eval()
-    if model.config.num_hidden_layers < max_num_layers:
-        err_msg = (f'The RoBERTa model "{os.path.basename(model_path)}" has an inadmissible number of hidden layers. '
-                   f'Expected {max_num_layers}, got {model.config.num_hidden_layers}.')
-        raise ValueError(err_msg)
-    model.encoder.layer = torch.nn.ModuleList(
-        [layer for layer in model.encoder.layer[:num_layers]]
+    num_layers = len(model.encoder.block) - 1
+    model.encoder.block = torch.nn.ModuleList(
+        [layer for layer in model.encoder.block[:num_layers]]
     )
     return tokenizer, model, evaluation_batch_size, corpus

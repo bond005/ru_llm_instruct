@@ -56,9 +56,9 @@ def main():
     parser.add_argument('--batch', dest='batch_size', type=int, required=True,
                         help='The mini-batch size for FRED-T5.')
     parser.add_argument('--eval_model', dest='eval_model', type=str, required=True,
-                        help='The path to the pre-trained RoBERTa for using as RoBERTa scorer.')
+                        help='The path to the pre-trained FRED-T5 for using as a BERT score calculator.')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=True,
-                        help='The mini-batch size for the RoBERTa scorer.')
+                        help='The mini-batch size for the BERT score calculator.')
     args = parser.parse_args()
 
     report_name = os.path.normpath(args.output_report_name)

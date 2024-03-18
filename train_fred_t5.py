@@ -44,9 +44,9 @@ def main():
     parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=3e-4,
                         help='The learning rate.')
     parser.add_argument('--eval_model', dest='eval_model', type=str, required=True,
-                        help='The path to the pre-trained RoBERTa for using as RoBERTa scorer.')
+                        help='The path to the pre-trained FRED-T5 for using as a BERT score calculator.')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=True,
-                        help='The mini-batch size for the RoBERTa scorer.')
+                        help='The mini-batch size for the BERT score calculator.')
     parser.add_argument('--trainsize', dest='trainsize', type=int, required=False, default=None,
                         help='The samples per training epoch.')
     parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
