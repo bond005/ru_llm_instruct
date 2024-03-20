@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 import numpy as np
 
@@ -26,3 +26,16 @@ def levenshtein(seq1: List[str], seq2: List[str]) -> float:
                     int(matrix[x, y - 1]) + 1
                 )
     return float(matrix[size_x - 1, size_y - 1])
+
+
+def process_multiline(s: str) -> Union[str, List[str]]:
+    lines = list(filter(
+        lambda it2: len(it2) > 0,
+        map(
+            lambda it1: ' '.join(it1.strip().split()).strip(),
+            s.split('\n')
+        )
+    ))
+    if len(lines) > 1:
+        return lines
+    return ' '.join(s.split())

@@ -144,7 +144,7 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             input_text_without_prompt, predicted_named_entities, entity_class
         )
         target_named_entities = find_entities_in_text(
-            input_text_without_prompt, target_named_entities, entity_class
+            input_text_without_prompt, target_named_entities, entity_class, raise_exception=True
         )
         if len(target_named_entities) != len(predicted_named_entities):
             err_msg = (f'The target named entities do not correspond to the text! Text: "{input_text_without_prompt}". '

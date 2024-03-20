@@ -3,10 +3,10 @@ import sys
 import unittest
 
 try:
-    from utils.utils import levenshtein
+    from utils.utils import levenshtein, process_multiline
 except:
     sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-    from utils.utils import levenshtein
+    from utils.utils import levenshtein, process_multiline
 
 
 class TestUtils(unittest.TestCase):
@@ -29,6 +29,36 @@ class TestUtils(unittest.TestCase):
         s1 = []
         s2 = []
         self.assertAlmostEqual(levenshtein(s1, s2), 0.0)
+
+    def test_process_multiline_pos01(self):
+        s = 'abc'
+        true_res = 'abc'
+        predicted = process_multiline(s)
+        self.assertIsInstance(predicted, str)
+        self.assertEqual(predicted, true_res)
+
+    def test_process_multiline_pos02(self):
+        s = 'abc\r\nd  ef g '
+        true_res = ['abc', 'd ef g']
+        predicted = process_multiline(s)
+        self.assertIsInstance(predicted, list)
+        self.assertEqual(len(predicted), len(true_res))
+        self.assertEqual(predicted, true_res)
+
+    def test_process_multiline_pos03(self):
+        s = '\nabc\n\nd  ef g\n'
+        true_res = ['abc', 'd ef g']
+        predicted = process_multiline(s)
+        self.assertIsInstance(predicted, list)
+        self.assertEqual(len(predicted), len(true_res))
+        self.assertEqual(predicted, true_res)
+
+    def test_process_multiline_neg01(self):
+        s = ''
+        true_res = ''
+        predicted = process_multiline(s)
+        self.assertIsInstance(predicted, str)
+        self.assertEqual(predicted, true_res)
 
 
 if __name__ == '__main__':

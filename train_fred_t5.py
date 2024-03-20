@@ -274,6 +274,7 @@ def main():
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
         model.train()
+        train_loss_val = 0.0
         for _ in trange(n_training_batches):
             try:
                 x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
@@ -291,10 +292,12 @@ def main():
                 decoder_attention_mask=y_attention_mask.to(device),
                 return_dict=True
             ).loss
+            train_loss_val += float(loss.detach().cpu())
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-        fredt5_logger.info(f'Epoch {epoch}: validation phase')
+        train_loss_val /= n_training_batches
+        fredt5_logger.info(f'Epoch {epoch}: training loss = {train_loss_val}.')
         model.eval()
         try:
             cur_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)

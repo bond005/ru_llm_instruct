@@ -199,6 +199,31 @@ class TestNER(unittest.TestCase):
             self.assertIsInstance(cur[1], str)
         self.assertEqual(predicted, true_res)
 
+    def test_find_entities_in_text_neg02(self):
+        source_text = 'A. I. Galushkin graduated from the Bauman Moscow Higher Technical School in 1963.'
+        entities = ['Bauman Higher Technical School']
+        entity_class = 'ORGANIZATION'
+        true_res = [
+            ('A', 'O'),
+            ('.', 'O'),
+            ('I', 'O'),
+            ('.', 'O'),
+            ('Galushkin', 'O'),
+            ('graduated', 'O'),
+            ('from', 'O'),
+            ('the', 'O'),
+            ('Bauman', 'O'),
+            ('Moscow', 'O'),
+            ('Higher', 'O'),
+            ('Technical', 'O'),
+            ('School', 'O'),
+            ('in', 'O'),
+            ('1963', 'O'),
+            ('.', 'O')
+        ]
+        with self.assertRaises(ValueError):
+            _ = find_entities_in_text(source_text, entities, entity_class, raise_exception=True)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -5,31 +5,17 @@ import logging
 import os
 import random
 import sys
-from typing import List, Union
 
 import numpy as np
-from tqdm import tqdm
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, GenerationConfig
 import torch
 
 from instructions.instructions import evaluate, load_evaluator
 from training.training import load_trainset
+from utils.utils import process_multiline
 
 
 fredt5_logger = logging.getLogger(__name__)
-
-
-def process_multiline(s: str) -> Union[str, List[str]]:
-    lines = list(filter(
-        lambda it2: len(it2) > 0,
-        map(
-            lambda it1: ' '.join(it1.strip().split()).strip(),
-            s.split('\n')
-        )
-    ))
-    if len(lines) > 1:
-        return lines
-    return ' '.join(s.split())
 
 
 def main():
@@ -197,6 +183,7 @@ def main():
         else:
             fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
         results_by_tasks[cur_task] = (cur_score, printed_results_for_json)
+        del printed_results, printed_results_for_json
 
     with codecs.open(report_name, mode='w', encoding='utf-8', errors='ignore') as fp:
         json.dump(obj=results_by_tasks, fp=fp, ensure_ascii=False, indent=4)
