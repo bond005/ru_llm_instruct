@@ -2,6 +2,7 @@ import codecs
 import json
 from argparse import ArgumentParser
 import logging
+import math
 import os
 import random
 import sys
@@ -45,6 +46,8 @@ def main():
                         help='The path to the pre-trained FRED-T5 for using as a BERT score calculator.')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=True,
                         help='The mini-batch size for the BERT score calculator.')
+    parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
+                        help='The maximal number of validation samples per validated task.')
     args = parser.parse_args()
 
     report_name = os.path.normpath(args.output_report_name)
@@ -155,6 +158,56 @@ def main():
 
     generation_config = GenerationConfig.from_pretrained(fredt5_name)
     fredt5_logger.info(f'{generation_config}')
+
+    fredt5_logger.info(f'The known tasks are {tasks_for_validation}')
+    if args.testsize is not None:
+        if args.testsize < 6:
+            err_msg = (f'The maximal number of validation samples per validated task is too small! '
+                       f'Expected 6 or greater, got {args.testsize}.')
+            fredt5_logger.error(err_msg)
+            raise ValueError(err_msg)
+        for task in tasks_for_validation:
+            if task.startswith('ner_'):
+                samples_with_ne = list(filter(
+                    lambda it: it[1].find('нет именованных сущностей такого типа') < 0,
+                    data_for_validation[task]
+                ))
+                samples_without_ne = list(filter(
+                    lambda it: it[1].find('нет именованных сущностей такого типа') >= 0,
+                    data_for_validation[task]
+                ))
+                if (len(samples_with_ne) + len(samples_without_ne)) != len(data_for_validation[task]):
+                    err_msg = f'The data for task {task} is incorrect!'
+                    fredt5_logger.error(err_msg)
+                    raise ValueError(err_msg)
+                if len(samples_with_ne) == 0:
+                    err_msg = f'The data for task {task} is incorrect!'
+                    fredt5_logger.error(err_msg)
+                    raise ValueError(err_msg)
+                if len(samples_without_ne) == 0:
+                    err_msg = f'The data for task {task} is incorrect!'
+                    fredt5_logger.error(err_msg)
+                    raise ValueError(err_msg)
+                if len(data_for_validation[task]) > args.testsize:
+                    if len(samples_with_ne) > math.ceil(args.testsize / 2):
+                        samples_for_ner = random.sample(samples_with_ne, k=math.ceil(args.testsize / 2))
+                    else:
+                        samples_for_ner = samples_with_ne
+                    if len(samples_without_ne) > (args.testsize - len(samples_for_ner)):
+                        samples_for_ner += random.sample(samples_without_ne, k=args.testsize - len(samples_for_ner))
+                    else:
+                        samples_for_ner += samples_without_ne
+                    del data_for_validation[task]
+                    data_for_validation[task] = samples_for_ner
+                    del samples_for_ner
+                del samples_with_ne, samples_without_ne
+            else:
+                if len(data_for_validation[task]) > args.testsize:
+                    data_for_validation[task] = random.sample(data_for_validation[task], k=args.testsize)
+
+        for task in tasks_for_validation:
+            info_msg = f'There are {len(data_for_validation[task])} test samples for task {task} after reducing.'
+            fredt5_logger.info(info_msg)
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)

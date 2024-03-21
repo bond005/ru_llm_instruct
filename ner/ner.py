@@ -26,7 +26,10 @@ def find_entities_in_text(source_text: str, entities: List[str], entity_class: s
     start_pos = 0
     entity_labels = []
     for cur_entity in entities:
-        tokens_of_entity = wordpunct_tokenize(cur_entity)
+        postprocessed_entity = cur_entity.strip()
+        while postprocessed_entity.endswith('</s>'):
+            postprocessed_entity = postprocessed_entity[:-4].strip()
+        tokens_of_entity = wordpunct_tokenize(postprocessed_entity)
         found_token_idx = find_subphrase(tokens_of_text[start_pos:], tokens_of_entity)
         if found_token_idx >= 0:
             found_token_idx += start_pos

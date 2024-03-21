@@ -113,7 +113,7 @@ class TestNER(unittest.TestCase):
         source_text = ('K.V. Vorontsov was awarded the medal of the Russian Academy of Sciences and '
                        'the prize for young scientists in recognition of his winning the competition held '
                        'to commemorate the 275th anniversary of the Academy (1999).')
-        entities = ['Russian Academy of Sciences', 'Academy']
+        entities = ['Russian Academy of Sciences', 'Academy</s>']
         entity_class = 'ORGANIZATION'
         true_res = [
             ('K', 'O'),
@@ -203,24 +203,6 @@ class TestNER(unittest.TestCase):
         source_text = 'A. I. Galushkin graduated from the Bauman Moscow Higher Technical School in 1963.'
         entities = ['Bauman Higher Technical School']
         entity_class = 'ORGANIZATION'
-        true_res = [
-            ('A', 'O'),
-            ('.', 'O'),
-            ('I', 'O'),
-            ('.', 'O'),
-            ('Galushkin', 'O'),
-            ('graduated', 'O'),
-            ('from', 'O'),
-            ('the', 'O'),
-            ('Bauman', 'O'),
-            ('Moscow', 'O'),
-            ('Higher', 'O'),
-            ('Technical', 'O'),
-            ('School', 'O'),
-            ('in', 'O'),
-            ('1963', 'O'),
-            ('.', 'O')
-        ]
         with self.assertRaises(ValueError):
             _ = find_entities_in_text(source_text, entities, entity_class, raise_exception=True)
 
