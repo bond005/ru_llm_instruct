@@ -13,7 +13,7 @@ def find_subphrase(full_phrase: List[str], subphrase: List[str]) -> int:
             return 0
         return -1
     found_idx = -1
-    for idx in range(len(full_phrase) - n):
+    for idx in range(len(full_phrase) - n + 1):
         if subphrase_ == ' '.join(full_phrase[idx:(idx + n)]).lower():
             found_idx = idx
             break

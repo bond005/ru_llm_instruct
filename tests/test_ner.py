@@ -45,6 +45,11 @@ class TestNER(unittest.TestCase):
         subprhase = ['b', 'C']
         self.assertEqual(find_subphrase(sentence, subprhase), 1)
 
+    def test_find_subphrase_pos05(self):
+        sentence = ['Левичев', 'стал', 'кандидатом', 'от', 'эсеров', 'на', 'выборах', 'мэра', 'Москвы']
+        subphrase = ['Москвы']
+        self.assertEqual(find_subphrase(sentence, subphrase), 8)
+
     def test_find_entities_in_text_pos01(self):
         source_text = 'A. I. Galushkin graduated from the Bauman Moscow Higher Technical School in 1963.'
         entities = ['A. I. Galushkin']
@@ -156,6 +161,31 @@ class TestNER(unittest.TestCase):
             ('(', 'O'),
             ('1999', 'O'),
             (').', 'O')
+        ]
+        predicted = find_entities_in_text(source_text, entities, entity_class)
+        self.assertIsInstance(predicted, list, msg=f'{predicted}')
+        self.assertEqual(len(predicted), len(true_res), msg=f'{predicted}')
+        for cur in predicted:
+            self.assertIsInstance(cur, tuple)
+            self.assertEqual(len(cur), 2)
+            self.assertIsInstance(cur[0], str)
+            self.assertIsInstance(cur[1], str)
+        self.assertEqual(predicted, true_res)
+
+    def test_find_entities_in_text_pos04(self):
+        source_text = 'Левичев стал кандидатом от эсеров на выборах мэра Москвы'
+        entities = ['Москвы</s>']
+        entity_class = 'LOCATION'
+        true_res = [
+            ('Левичев', 'O'),
+            ('стал', 'O'),
+            ('кандидатом', 'O'),
+            ('от', 'O'),
+            ('эсеров', 'O'),
+            ('на', 'O'),
+            ('выборах', 'O'),
+            ('мэра', 'O'),
+            ('Москвы', 'B-LOCATION')
         ]
         predicted = find_entities_in_text(source_text, entities, entity_class)
         self.assertIsInstance(predicted, list, msg=f'{predicted}')
