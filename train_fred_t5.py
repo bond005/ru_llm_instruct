@@ -152,7 +152,7 @@ def main():
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
-    fredt5_logger.info(f'The RoBERTa scorer "{os.path.basename(scorer_path)}" is loaded.')
+    fredt5_logger.info(f'The BERT scorer based on FRED-T5 "{os.path.basename(scorer_path)}" is loaded.')
 
     model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name).to(device)
     model.eval()

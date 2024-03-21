@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 
@@ -28,6 +28,11 @@ def levenshtein(seq1: List[str], seq2: List[str]) -> float:
     return float(matrix[size_x - 1, size_y - 1])
 
 
+def calculate_word_error_rate(predicted: List[str], reference: List[str]) -> Tuple[float, float]:
+    dist = levenshtein(predicted, reference)
+    return dist, float(len(reference))
+
+
 def process_multiline(s: str) -> Union[str, List[str]]:
     lines = list(filter(
         lambda it2: len(it2) > 0,
@@ -39,3 +44,10 @@ def process_multiline(s: str) -> Union[str, List[str]]:
     if len(lines) > 1:
         return lines
     return ' '.join(s.split())
+
+
+def process_target(s: str) -> str:
+    s_ = s.strip()
+    while s_.endswith('</s>'):
+        s_ = s_[:-4].strip()
+    return s_

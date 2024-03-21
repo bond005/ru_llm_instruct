@@ -149,7 +149,7 @@ def main():
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
-    fredt5_logger.info(f'The RoBERTa scorer "{os.path.basename(scorer_path)}" is loaded.')
+    fredt5_logger.info(f'The BERT scorer based on FRED-T5 "{os.path.basename(scorer_path)}" is loaded.')
 
     model = T5ForConditionalGeneration.from_pretrained(fredt5_name).to(device)
     model.eval()
@@ -236,7 +236,7 @@ def main():
         else:
             fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
         results_by_tasks[cur_task] = (cur_score, printed_results_for_json)
-        del printed_results, printed_results_for_json
+        del printed_results_for_json
 
     with codecs.open(report_name, mode='w', encoding='utf-8', errors='ignore') as fp:
         json.dump(obj=results_by_tasks, fp=fp, ensure_ascii=False, indent=4)

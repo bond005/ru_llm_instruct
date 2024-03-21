@@ -3,10 +3,10 @@ import sys
 import unittest
 
 try:
-    from utils.utils import levenshtein, process_multiline
+    from utils.utils import levenshtein, process_multiline, process_target
 except:
     sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-    from utils.utils import levenshtein, process_multiline
+    from utils.utils import levenshtein, process_multiline, process_target
 
 
 class TestUtils(unittest.TestCase):
@@ -59,6 +59,22 @@ class TestUtils(unittest.TestCase):
         predicted = process_multiline(s)
         self.assertIsInstance(predicted, str)
         self.assertEqual(predicted, true_res)
+
+    def test_process_target_pos01(self):
+        s = ' abc\n'
+        self.assertEqual(process_target(s), 'abc')
+
+    def test_process_target_pos02(self):
+        s = 'abc </s> '
+        self.assertEqual(process_target(s), 'abc')
+
+    def test_process_target_pos03(self):
+        s = 'ab\nc</s>'
+        self.assertEqual(process_target(s), 'ab\nc')
+
+    def test_process_target_neg01(self):
+        s = ''
+        self.assertEqual(process_target(s), '')
 
 
 if __name__ == '__main__':
