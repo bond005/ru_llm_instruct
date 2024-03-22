@@ -15,7 +15,7 @@ from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGenera
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
-from utils.utils import levenshtein, calculate_word_error_rate, process_target
+from utils.utils import calculate_word_error_rate, process_target
 
 
 KNOWN_TASKS = [
@@ -74,6 +74,7 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
         wer = n_total_word_dist / float(n_total_words)
     else:
         wer = 0.0
+    del res
     return 1.0 - wer, printed_results
 
 
@@ -81,11 +82,14 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
                           config: GenerationConfig, model: T5ForConditionalGeneration) -> (
         Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
-    n_total_paragraph_dist = 0
-    n_total_paragraphs = 0
+    arguments = []
     for input_text, target_text in tqdm(data_for_validation):
         predicted_text = generate_answer(input_text, tokenizer, config, model)
-        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': process_target(target_text)})
+        target_text_ = process_target(target_text)
+        if len(target_text_) == 0:
+            err_msg = f'The evaluation pair ({input_text}, {target_text}) is wrong, because the target is empty!'
+            raise ValueError(err_msg)
+        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text_})
         predicted_paragraphs = list(map(
             lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
             filter(
@@ -97,17 +101,23 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
             lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
             filter(
                 lambda it2: len(it2) > 0,
-                map(lambda it1: it1.strip(), process_target(target_text).split('\n'))
+                map(lambda it1: it1.strip(), target_text_.split('\n'))
             )
         ))
-        cur_dist = levenshtein(predicted_paragraphs, target_paragraphs)
-        cur_paragraph_number = len(target_paragraphs)
+        arguments.append((predicted_paragraphs, target_paragraphs))
+    with Pool(processes=max(1, os.cpu_count())) as pool:
+        res = pool.starmap(calculate_word_error_rate, arguments)
+    del arguments
+    n_total_paragraph_dist = 0
+    n_total_paragraphs = 0
+    for cur_dist, cur_paragraph_number in res:
         n_total_paragraph_dist += cur_dist
         n_total_paragraphs += cur_paragraph_number
     if n_total_paragraphs > 0:
         per = n_total_paragraph_dist / float(n_total_paragraphs)
     else:
         per = 0.0
+    del res
     return 1.0 - per, printed_results
 
 
@@ -178,19 +188,23 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         predicted_text = generate_answer(input_text, tokenizer, config, model)
         texts_for_idf.append(predicted_text)
         candidates.append(predicted_text)
-        references.append(process_target(target_text))
-        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': process_target(target_text)})
+        target_text_ = process_target(target_text)
+        if len(target_text_) == 0:
+            err_msg = f'The evaluation pair ({input_text}, {target_text}) is wrong, because the target is empty!'
+            raise ValueError(err_msg)
+        references.append(target_text_)
+        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text_})
     if len(printed_results) > 5:
         printed_results = random.sample(printed_results, k=5)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
     del texts_for_idf
     try:
         all_preds = bert_cos_score_idf(
-            scorer[1],
-            references,
-            candidates,
-            tokenizer,
-            idf_dict,
+            model=scorer[1],
+            refs=references,
+            hyps=candidates,
+            tokenizer=scorer[0],
+            idf_dict=idf_dict,
             device=scorer[1].device,
             batch_size=scorer[2],
             all_layers=False
