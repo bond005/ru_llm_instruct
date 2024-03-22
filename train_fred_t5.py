@@ -132,6 +132,11 @@ def main():
         raise
     tasks_for_validation = sorted(list(data_for_validation.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_validation)} tasks for validation.')
+    if set(tasks_for_training) != set(tasks_for_validation):
+        err_msg = (f'The training tasks do not correspond to the validation tasks! '
+                   f'{tasks_for_training} != {tasks_for_validation}')
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
     for cur_task in tasks_for_validation:
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
         for text_pair in data_for_validation[cur_task]:
@@ -214,7 +219,7 @@ def main():
                        f'Expected 6 or greater, got {args.testsize}.')
             fredt5_logger.error(err_msg)
             raise ValueError(err_msg)
-        for task in data_for_validation:
+        for task in tasks_for_validation:
             if task.startswith('ner_'):
                 samples_with_ne = list(filter(
                     lambda it: it[1].find('нет именованных сущностей такого типа') < 0,
@@ -253,8 +258,14 @@ def main():
                 if len(data_for_validation[task]) > args.testsize:
                     data_for_validation[task] = random.sample(data_for_validation[task], k=args.testsize)
 
+        for task in tasks_for_validation:
+            info_msg = f'There are {len(data_for_validation[task])} test samples for task {task} after reducing.'
+            fredt5_logger.info(info_msg)
+
     try:
-        best_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)
+        best_score, results_by_tasks = evaluate(data_for_validation,
+                                                tokenizer, generation_config, model, minibatch_size,
+                                                scorer)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -300,7 +311,9 @@ def main():
         fredt5_logger.info(f'Epoch {epoch}: training loss = {train_loss_val}.')
         model.eval()
         try:
-            cur_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)
+            cur_score, results_by_tasks = evaluate(data_for_validation,
+                                                   tokenizer, generation_config, model, minibatch_size,
+                                                   scorer)
         except Exception as err:
             fredt5_logger.error(str(err))
             raise

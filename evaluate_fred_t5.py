@@ -210,7 +210,9 @@ def main():
             fredt5_logger.info(info_msg)
 
     try:
-        best_score, results_by_tasks = evaluate(data_for_validation, tokenizer, generation_config, model, scorer)
+        best_score, results_by_tasks = evaluate(data_for_validation,
+                                                tokenizer, generation_config, model, minibatch_size,
+                                                scorer)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise

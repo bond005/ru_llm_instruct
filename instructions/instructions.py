@@ -1,4 +1,5 @@
 import copy
+import math
 from multiprocessing import Pool
 import os
 import random
@@ -10,7 +11,7 @@ import numpy as np
 from seqeval.metrics import f1_score
 from scipy.stats import hmean
 import torch
-from tqdm import tqdm
+from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration, T5EncoderModel
 
 from inference.inference import generate_answer, fix_recognition_error
@@ -54,14 +55,23 @@ KNOWN_TASKS = [
 
 
 def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
-                            config: GenerationConfig, model: T5ForConditionalGeneration) -> (
-        Tuple)[float, List[Dict[str, str]]]:
+                            config: GenerationConfig, model: T5ForConditionalGeneration,
+                            minibatch: int) -> Tuple[float, List[Dict[str, str]]]:
     printed_results = []
     arguments = []
-    for input_text, target_text in tqdm(data_for_validation):
-        predicted_text = fix_recognition_error(input_text, tokenizer, config, model)
-        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': process_target(target_text)})
-        arguments.append((wordpunct_tokenize(predicted_text), wordpunct_tokenize(process_target(target_text))))
+    n_batches = math.ceil(len(data_for_validation) / minibatch)
+    for batch_idx in trange(n_batches):
+        batch_start = batch_idx * minibatch
+        batch_end = min(len(data_for_validation), batch_start + minibatch)
+        input_texts = [it[0] for it in data_for_validation[batch_start:batch_end]]
+        target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
+        predicted_texts = fix_recognition_error(input_texts, tokenizer, config, model)
+        if len(predicted_texts) != len(input_texts):
+            err_msg = f'The predicted texts do not correspond to the input texts! {predicted_texts} != {input_texts}'
+            raise ValueError(err_msg)
+        for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
+            printed_results.append({'INPUT': input_, 'PREDICTED': predicted_, 'TRUE': target_})
+            arguments.append((wordpunct_tokenize(predicted_), wordpunct_tokenize(target_)))
     with Pool(processes=max(1, os.cpu_count())) as pool:
         res = pool.starmap(calculate_word_error_rate, arguments)
     del arguments
@@ -79,32 +89,34 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
 
 
 def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
-                          config: GenerationConfig, model: T5ForConditionalGeneration) -> (
+                          config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int) -> (
         Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
     arguments = []
-    for input_text, target_text in tqdm(data_for_validation):
-        predicted_text = generate_answer(input_text, tokenizer, config, model)
-        target_text_ = process_target(target_text)
-        if len(target_text_) == 0:
-            err_msg = f'The evaluation pair ({input_text}, {target_text}) is wrong, because the target is empty!'
-            raise ValueError(err_msg)
-        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text_})
-        predicted_paragraphs = list(map(
-            lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
-            filter(
-                lambda it2: len(it2) > 0,
-                map(lambda it1: it1.strip(), predicted_text.split('\n'))
-            )
-        ))
-        target_paragraphs = list(map(
-            lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
-            filter(
-                lambda it2: len(it2) > 0,
-                map(lambda it1: it1.strip(), target_text_.split('\n'))
-            )
-        ))
-        arguments.append((predicted_paragraphs, target_paragraphs))
+    n_batches = math.ceil(len(data_for_validation) / minibatch)
+    for batch_idx in trange(n_batches):
+        batch_start = batch_idx * minibatch
+        batch_end = min(len(data_for_validation), batch_start + minibatch)
+        input_texts = [it[0] for it in data_for_validation[batch_start:batch_end]]
+        target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
+        predicted_texts = generate_answer(input_texts, tokenizer, config, model)
+        for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
+            printed_results.append({'INPUT': input_, 'PREDICTED': predicted_, 'TRUE': target_})
+            predicted_paragraphs = list(map(
+                lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
+                filter(
+                    lambda it2: len(it2) > 0,
+                    map(lambda it1: it1.strip(), predicted_.split('\n'))
+                )
+            ))
+            target_paragraphs = list(map(
+                lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
+                filter(
+                    lambda it2: len(it2) > 0,
+                    map(lambda it1: it1.strip(), target_.split('\n'))
+                )
+            ))
+            arguments.append((predicted_paragraphs, target_paragraphs))
     with Pool(processes=max(1, os.cpu_count())) as pool:
         res = pool.starmap(calculate_word_error_rate, arguments)
     del arguments
@@ -122,52 +134,60 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
 
 
 def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, tokenizer: GPT2Tokenizer,
-                 config: GenerationConfig, model: T5ForConditionalGeneration) -> Tuple[float, List[Dict[str, str]]]:
+                 config: GenerationConfig, model: T5ForConditionalGeneration,
+                 minibatch: int) -> Tuple[float, List[Dict[str, str]]]:
     printed_results = []
     prompt_tail = ' и выпиши список таких сущностей.'
-    for input_text, target_text in tqdm(data_for_validation):
-        found_idx = input_text.find(prompt_tail)
-        if found_idx < 0:
-            raise ValueError(f'The text "{input_text}" has not a correct prompt!')
-        input_text_without_prompt = input_text[(found_idx + len(prompt_tail)):].strip()
-        predicted_text = generate_answer(input_text, tokenizer, config, model)
-        predicted_text_ = ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(predicted_text.lower()))))
-        if predicted_text_.find('в этом тексте нет именованных сущностей такого типа') >= 0:
-            predicted_named_entities = []
-        else:
-            predicted_named_entities = list(map(
-                lambda it3: it3.strip(),
-                filter(
-                    lambda it2: len(it2) > 0,
-                    map(lambda it1: it1.strip(), predicted_text.split('\n'))
-                )
-            ))
-        target_text_ = ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(target_text.lower()))))
-        if target_text_.find('в этом тексте нет именованных сущностей такого типа') >= 0:
-            target_named_entities = []
-        else:
-            target_named_entities = list(map(
-                lambda it3: it3.strip(),
-                filter(
-                    lambda it2: len(it2) > 0,
-                    map(lambda it1: it1.strip(), target_text.split('\n'))
-                )
-            ))
-        predicted_named_entities = find_entities_in_text(
-            input_text_without_prompt, predicted_named_entities, entity_class
-        )
-        target_named_entities = find_entities_in_text(
-            input_text_without_prompt, target_named_entities, entity_class, raise_exception=True
-        )
-        if len(target_named_entities) != len(predicted_named_entities):
-            err_msg = (f'The target named entities do not correspond to the text! Text: "{input_text_without_prompt}". '
-                       f'Entities: {target_named_entities}')
-            raise ValueError(err_msg)
-        printed_results.append({
-            'INPUT': input_text,
-            'PREDICTED': predicted_named_entities,
-            'TRUE': target_named_entities
-        })
+    n_batches = math.ceil(len(data_for_validation) / minibatch)
+    for batch_idx in trange(n_batches):
+        batch_start = batch_idx * minibatch
+        batch_end = min(len(data_for_validation), batch_start + minibatch)
+        input_texts = [it[0] for it in data_for_validation[batch_start:batch_end]]
+        target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
+        predicted_texts = generate_answer(input_texts, tokenizer, config, model)
+        for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
+            found_idx = input_.find(prompt_tail)
+            if found_idx < 0:
+                raise ValueError(f'The text "{input_}" has not a correct prompt!')
+            input_text_without_prompt = input_[(found_idx + len(prompt_tail)):].strip()
+            predicted_text_ = ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(predicted_.lower()))))
+            if predicted_text_.find('в этом тексте нет именованных сущностей такого типа') >= 0:
+                predicted_named_entities = []
+            else:
+                predicted_named_entities = list(map(
+                    lambda it3: it3.strip(),
+                    filter(
+                        lambda it2: len(it2) > 0,
+                        map(lambda it1: it1.strip(), predicted_.split('\n'))
+                    )
+                ))
+            target_text_ = ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(target_.lower()))))
+            if target_text_.find('в этом тексте нет именованных сущностей такого типа') >= 0:
+                target_named_entities = []
+            else:
+                target_named_entities = list(map(
+                    lambda it3: it3.strip(),
+                    filter(
+                        lambda it2: len(it2) > 0,
+                        map(lambda it1: it1.strip(), target_.split('\n'))
+                    )
+                ))
+            predicted_named_entities = find_entities_in_text(
+                input_text_without_prompt, predicted_named_entities, entity_class
+            )
+            target_named_entities = find_entities_in_text(
+                input_text_without_prompt, target_named_entities, entity_class, raise_exception=True
+            )
+            if len(target_named_entities) != len(predicted_named_entities):
+                err_msg = (
+                    f'The target named entities do not correspond to the text! Text: "{input_text_without_prompt}". '
+                    f'Entities: {target_named_entities}')
+                raise ValueError(err_msg)
+            printed_results.append({
+                'INPUT': input_,
+                'PREDICTED': predicted_named_entities,
+                'TRUE': target_named_entities
+            })
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
     f1 = f1_score(y_true, y_pred)
@@ -177,23 +197,28 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
 
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
-                      config: GenerationConfig, model: T5ForConditionalGeneration,
+                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
                       scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
         Tuple)[float, List[Dict[str, str]]]:
     printed_results = []
     candidates = []
     references = []
     texts_for_idf = copy.copy(scorer[3])
-    for input_text, target_text in data_for_validation:
-        predicted_text = generate_answer(input_text, tokenizer, config, model)
-        texts_for_idf.append(predicted_text)
-        candidates.append(predicted_text)
-        target_text_ = process_target(target_text)
-        if len(target_text_) == 0:
-            err_msg = f'The evaluation pair ({input_text}, {target_text}) is wrong, because the target is empty!'
-            raise ValueError(err_msg)
-        references.append(target_text_)
-        printed_results.append({'INPUT': input_text, 'PREDICTED': predicted_text, 'TRUE': target_text_})
+    n_batches = math.ceil(len(data_for_validation) / minibatch)
+    for batch_idx in trange(n_batches):
+        batch_start = batch_idx * minibatch
+        batch_end = min(len(data_for_validation), batch_start + minibatch)
+        input_texts = [it[0] for it in data_for_validation[batch_start:batch_end]]
+        target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
+        predicted_texts = generate_answer(input_texts, tokenizer, config, model)
+        for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
+            texts_for_idf.append(predicted_)
+            candidates.append(predicted_)
+            if len(target_) == 0:
+                err_msg = f'The evaluation pair ({input_}, {target_}) is wrong, because the target is empty!'
+                raise ValueError(err_msg)
+            references.append(target_)
+            printed_results.append({'INPUT': input_, 'PREDICTED': predicted_, 'TRUE': target_})
     if len(printed_results) > 5:
         printed_results = random.sample(printed_results, k=5)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
@@ -228,21 +253,22 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
 
 
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
-             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration,
+             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
              intelligent_scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
         Tuple)[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
     for task in data_for_validation:
         if task == 'asr_correction':
-            res[task] = evaluate_asr_correction(data_for_validation[task], tokenizer, config, model)
+            res[task] = evaluate_asr_correction(data_for_validation[task], tokenizer, config, model, minibatch)
         elif task == 'segmenation':
-            res[task] = evaluate_segmentation(data_for_validation[task], tokenizer, config, model)
+            res[task] = evaluate_segmentation(data_for_validation[task], tokenizer, config, model, minibatch)
         elif task.startswith('ner_'):
             entity_class = task[4:].lower()
-            res[task] = evaluate_ner(data_for_validation[task], entity_class, tokenizer, config, model)
+            res[task] = evaluate_ner(data_for_validation[task], entity_class, tokenizer, config, model, minibatch)
         else:
-            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, intelligent_scorer)
+            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch,
+                                          intelligent_scorer)
         scores.append(max(res[task][0], 1e-9))
     mean_score = float(hmean(scores))
     del scores
