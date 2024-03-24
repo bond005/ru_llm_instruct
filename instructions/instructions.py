@@ -200,6 +200,8 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
                       config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
                       scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
         Tuple)[float, List[Dict[str, str]]]:
+    if len(data_for_validation) < 1:
+        raise ValueError(f'The validation data are empty!')
     printed_results = []
     candidates = []
     references = []
@@ -219,6 +221,14 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
                 raise ValueError(err_msg)
             references.append(target_)
             printed_results.append({'INPUT': input_, 'PREDICTED': predicted_, 'TRUE': target_})
+    if len(references) != len(data_for_validation):
+        err_msg = f'The reference texts number does not correspond to the validation data size! ' \
+                  f'{len(references)} != {len(data_for_validation)}'
+        raise ValueError(err_msg)
+    if len(candidates) != len(data_for_validation):
+        err_msg = f'The predicted texts number does not correspond to the validation data size! ' \
+                  f'{len(candidates)} != {len(data_for_validation)}'
+        raise ValueError(err_msg)
     if len(printed_results) > 5:
         printed_results = random.sample(printed_results, k=5)
     idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
