@@ -218,7 +218,11 @@ def main():
         raise
     fredt5_logger.info(f'United recognition score is {best_score}.')
     for cur_task in tasks_for_validation:
-        fredt5_logger.info(f'Recognition results for the task {cur_task}:')
+        if len(cur_task.strip()) == 0:
+            err_msg = f'The task is empty!'
+            fredt5_logger.error(err_msg)
+            raise ValueError(err_msg)
+        info_msg = f'Recognition results for the task {cur_task}: '
         cur_score, printed_results = results_by_tasks[cur_task]
         printed_results_for_json = []
         for old_item in printed_results:
@@ -230,13 +234,14 @@ def main():
             printed_results_for_json.append(new_item)
         del printed_results
         if cur_task == 'asr_correction':
-            fredt5_logger.info('Word accuracy is {0:.5%}.'.format(cur_score))
+            info_msg += 'Word accuracy is {0:.5%}.'.format(cur_score)
         elif cur_task == 'segmentation':
-            fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(cur_score))
-        if cur_task.startswith('ner_'):
-            fredt5_logger.info('F1 by entities is {0:.6f}.'.format(cur_score))
+            info_msg += 'Paragraph accuracy is {0:.5%}.'.format(cur_score)
+        elif cur_task.startswith('ner_'):
+            info_msg += 'F1 by entities is {0:.6f}.'.format(cur_score)
         else:
-            fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(cur_score))
+            info_msg += 'BERT-score F1 is {0:.6f}.'.format(cur_score)
+        fredt5_logger.info(info_msg)
         results_by_tasks[cur_task] = (cur_score, printed_results_for_json)
         del printed_results_for_json
 
