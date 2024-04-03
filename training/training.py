@@ -134,19 +134,19 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
             line_idx += 1
     set_of_tasks = set(res.keys())
     if 'detoxification' in set_of_tasks:
-        simplification_prompt = '<LM>Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным ' \
+        detoxification_prompt = '<LM>Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным ' \
                                 '(неприятным для какой-то группы людей, нарушающим принципы этики).'
         paraphrase_detection_prompt = '<LM>Подскажи, пожалуйста, являются ли парафразами (то есть близкими по ' \
                                       'смыслу) следующие два текста?'
-        toxicity_detection_prompt = 'Подскажи, пожалуйста, является ли токсичным (неприятным для какой-то группы ' \
+        toxicity_detection_prompt = '<LM>Подскажи, пожалуйста, является ли токсичным (неприятным для какой-то группы ' \
                                     'людей, нарушающим принципы этики) следующий текст?'
         if 'paraphrase_detection' not in set_of_tasks:
             res['paraphrase_detection'] = []
         if 'toxicity_detection' not in set_of_tasks:
             res['toxicity_detection'] = []
-        all_indices = set(range(len('simplification')))
-        for idx, (input_text, target_text) in enumerate(res['simplification']):
-            first_text = input_text[len(simplification_prompt):].strip()
+        all_indices = set(range(len(res['detoxification'])))
+        for idx, (input_text, target_text) in enumerate(res['detoxification']):
+            first_text = input_text[len(detoxification_prompt):].strip()
             second_text = target_text[:-len('</s>')].strip()
             res['toxicity_detection'].append((
                 toxicity_detection_prompt + ' ' + first_text,
@@ -165,7 +165,7 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                 'Да.</s>'
             ))
             other_idx = random.choice(list(all_indices - {idx}))
-            second_text = res['simplification'][other_idx][1][:-len('</s>')].strip()
+            second_text = res['detoxification'][other_idx][1][:-len('</s>')].strip()
             res['paraphrase_detection'].append((
                 paraphrase_detection_prompt + f' Первый текст: {first_text} Второй текст: {second_text}',
                 'Нет.</s>'
@@ -174,13 +174,14 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                 paraphrase_detection_prompt + f' Первый текст: {second_text} Второй текст: {first_text}',
                 'Нет.</s>'
             ))
+        del all_indices
     if 'simplification' in set_of_tasks:
         simplification_prompt = '<LM>Упрости, пожалуйста, следующий текст.'
         paraphrase_detection_prompt = '<LM>Подскажи, пожалуйста, являются ли парафразами (то есть близкими по ' \
                                       'смыслу) следующие два текста?'
         if 'paraphrase_detection' not in set_of_tasks:
             res['paraphrase_detection'] = []
-        all_indices = set(range(len('simplification')))
+        all_indices = set(range(len(res['simplification'])))
         for idx, (input_text, target_text) in enumerate(res['simplification']):
             first_text = input_text[len(simplification_prompt):].strip()
             second_text = target_text[:-len('</s>')].strip()
@@ -202,6 +203,7 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                 paraphrase_detection_prompt + f' Первый текст: {second_text} Второй текст: {first_text}',
                 'Нет.</s>'
             ))
+        del all_indices
     list_of_tasks = sorted(list(res.keys()))
     for cur_task in list_of_tasks:
         res[cur_task] = sorted(list(set(res[cur_task])))
