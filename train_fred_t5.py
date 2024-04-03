@@ -279,6 +279,8 @@ def main():
             fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(instant_score))
         elif cur_task.startswith('ner_'):
             fredt5_logger.info('F1 by entities is {0:.6f}.'.format(instant_score))
+        elif cur_task.endswith('_detection'):
+            fredt5_logger.info('Yes/No F1 is {0:.6f}.'.format(instant_score))
         else:
             fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(instant_score))
 
@@ -327,6 +329,8 @@ def main():
                 fredt5_logger.info('Epoch {0}: paragraph accuracy is {1:.5%}.'.format(epoch, instant_score))
             elif cur_task.startswith('ner_'):
                 fredt5_logger.info('Epoch {0}: F1 by entities is {1:.6f}.'.format(epoch, instant_score))
+            elif cur_task.endswith('_detection'):
+                fredt5_logger.info('Epoch {0}: Yes/No F1 is {1:.6f}.'.format(epoch, instant_score))
             else:
                 fredt5_logger.info('Epoch {0}: BERT-score F1 is {1:.6f}.'.format(epoch, instant_score))
         if cur_score > best_score:

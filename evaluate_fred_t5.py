@@ -239,6 +239,8 @@ def main():
             info_msg += 'Paragraph accuracy is {0:.5%}.'.format(cur_score)
         elif cur_task.startswith('ner_'):
             info_msg += 'F1 by entities is {0:.6f}.'.format(cur_score)
+        elif cur_task.endswith('_detection'):
+            info_msg += 'Yes/No F1 is {0:.6f}.'.format(cur_score)
         else:
             info_msg += 'BERT-score F1 is {0:.6f}.'.format(cur_score)
         fredt5_logger.info(info_msg)

@@ -8,8 +8,9 @@ from typing import Dict, List, Tuple
 from bert_score import bert_cos_score_idf, get_idf_dict
 from nltk import wordpunct_tokenize
 import numpy as np
-from seqeval.metrics import f1_score
+from seqeval.metrics import f1_score as ner_f1_score
 from scipy.stats import hmean
+from sklearn.metrics import f1_score
 import torch
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration, T5EncoderModel
@@ -50,6 +51,20 @@ KNOWN_TASKS = [
         'Найди, пожалуйста, все именованные сущности типа "Местоположение" в следующем тексте '
         'и выпиши список таких сущностей.',
         'ner_location'
+    ),
+    (
+        'Подскажи, пожалуйста, являются ли парафразами (то есть близкими по смыслу) следующие два текста?',
+        'paraphrase_detection'
+    ),
+    (
+        'Подскажи, пожалуйста, является ли токсичным (неприятным для какой-то группы людей, '
+        'нарушающим принципы этики) следующий текст?',
+        'toxicity_detection'
+    ),
+    (
+        'Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным '
+        '(неприятным для какой-то группы людей, нарушающим принципы этики).',
+        'detoxification'
     )
 ]
 
@@ -190,10 +205,71 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             })
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
-    f1 = f1_score(y_true, y_pred)
+    f1 = ner_f1_score(y_true, y_pred)
     printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
                        for it in printed_results]
     return f1, printed_results
+
+
+def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
+                   config: GenerationConfig, model: T5ForConditionalGeneration,
+                   minibatch: int) -> Tuple[float, List[Dict[str, str]]]:
+    printed_results = []
+    n_batches = math.ceil(len(data_for_validation) / minibatch)
+    da_true = []
+    net_true = []
+    da_pred = []
+    net_pred = []
+    for batch_idx in trange(n_batches):
+        batch_start = batch_idx * minibatch
+        batch_end = min(len(data_for_validation), batch_start + minibatch)
+        input_texts = [it[0] for it in data_for_validation[batch_start:batch_end]]
+        target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
+        predicted_texts = generate_answer(input_texts, tokenizer, config, model)
+        for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
+            target__ = ' '.join(
+                list(filter(lambda x: x.isalnum(), wordpunct_tokenize(' '.join(target_.strip().lower().split()))))
+            )
+            if target__ not in {'да', 'нет'}:
+                err_msg = f'The target text {target_} is impossible! Expected "да" or "нет".'
+                raise ValueError(err_msg)
+            if target__.lower() == 'да':
+                da_true.append(1)
+                net_true.append(0)
+            else:
+                da_true.append(0)
+                net_true.append(1)
+            predicted__ = ' ' + ' '.join(
+                list(filter(lambda x: x.isalnum(), wordpunct_tokenize(' '.join(predicted_.strip().lower().split()))))
+            ) + ' '
+            da_idx = predicted__.find(' да ')
+            net_idx = predicted__.find(' нет ')
+            if (da_idx < 0) and (net_idx < 0):
+                da_pred.append(0)
+                net_pred.append(0)
+            elif (da_idx >= 0) and (net_idx >= 0):
+                if da_idx < net_idx:
+                    da_pred.append(1)
+                    net_pred.append(0)
+                else:
+                    da_pred.append(0)
+                    net_pred.append(1)
+            elif da_idx >= 0:
+                da_pred.append(1)
+                net_pred.append(0)
+            else:
+                da_pred.append(0)
+                net_pred.append(1)
+            printed_results.append({
+                'INPUT': input_,
+                'PREDICTED': predicted__.strip(),
+                'TRUE': target_
+            })
+    f1 = f1_score(da_true, da_pred, average='binary')
+    f1 += f1_score(net_true, net_pred, average='binary')
+    printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
+                       for it in printed_results]
+    return f1 / 2.0, printed_results
 
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
@@ -276,6 +352,8 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
         elif task.startswith('ner_'):
             entity_class = task[4:].lower()
             res[task] = evaluate_ner(data_for_validation[task], entity_class, tokenizer, config, model, minibatch)
+        elif task.endswith('_detection'):
+            res[task] = evaluate_danet(data_for_validation[task], tokenizer, config, model, minibatch)
         else:
             res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch,
                                           intelligent_scorer)
