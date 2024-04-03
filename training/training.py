@@ -131,6 +131,7 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                     if task_name not in res:
                         res[task_name] = []
                     res[task_name].append((input_text, target_text))
+            line_idx += 1
     set_of_tasks = set(res.keys())
     if 'detoxification' in set_of_tasks:
         simplification_prompt = '<LM>Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным ' \
