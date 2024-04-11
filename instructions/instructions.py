@@ -69,6 +69,22 @@ KNOWN_TASKS = [
 ]
 
 
+def get_task_type(input_question: str, use_lm_tag: bool) -> int:
+    found_idx = -1
+    for idx, (task_prompt, task_type) in enumerate(KNOWN_TASKS):
+        found_pos = input_question.find(task_prompt)
+        if found_pos >= 0:
+            if use_lm_tag:
+                found_pos = input_question.find('<LM>' + task_prompt)
+            else:
+                found_pos = input_question.find(task_prompt)
+            if found_pos != 0:
+                raise ValueError(f'The input question has an incorrect format! {input_question}')
+            found_idx = idx
+            break
+    return found_idx
+
+
 def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                             config: GenerationConfig, model: T5ForConditionalGeneration,
                             minibatch: int) -> Tuple[float, List[Dict[str, str]]]:

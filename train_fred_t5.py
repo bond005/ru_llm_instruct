@@ -12,7 +12,7 @@ from transformers import T5ForConditionalGeneration, GPT2Tokenizer, Adafactor, G
 import torch
 
 from instructions.instructions import evaluate, load_evaluator
-from training.training import sample_batch, load_trainset
+from training.training import sample_batch, load_trainset, add_few_shot_tasks
 
 
 fredt5_logger = logging.getLogger(__name__)
@@ -51,6 +51,10 @@ def main():
                         help='The samples per training epoch.')
     parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
                         help='The maximal number of validation samples per validated task.')
+    parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
+                        help='The <LM> tag is not used.')
+    parser.add_argument('--few_shot', dest='few_shot', action='store_true', required=False,
+                        help='The few-shot inference is added.')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -106,7 +110,7 @@ def main():
 
     n_training_samples = 0
     try:
-        data_for_training = load_trainset(traindata_name)
+        data_for_training = load_trainset(traindata_name, lm_tag=not args.no_lm_tag)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -117,7 +121,10 @@ def main():
         n_training_samples += len(data_for_training[cur_task])
         for text_pair in data_for_training[cur_task]:
             if cur_task != 'asr_correction':
-                united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
+                if args.no_lm_tag:
+                    united_text_corpus.append(' '.join(text_pair[0].strip().split()))
+                else:
+                    united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
                 if len(united_text_corpus[-1]) > max_text_len:
                     max_text_len = len(united_text_corpus[-1])
             united_text_corpus.append(' '.join(text_pair[1][:-4].strip().split()))
@@ -126,7 +133,7 @@ def main():
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
 
     try:
-        data_for_validation = load_trainset(testdata_name)
+        data_for_validation = load_trainset(testdata_name, lm_tag=not args.no_lm_tag)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -141,7 +148,10 @@ def main():
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
         for text_pair in data_for_validation[cur_task]:
             if cur_task != 'asr_correction':
-                united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
+                if args.no_lm_tag:
+                    united_text_corpus.append(' '.join(text_pair[0].strip().split()))
+                else:
+                    united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
                 if len(united_text_corpus[-1]) > max_text_len:
                     max_text_len = len(united_text_corpus[-1])
             united_text_corpus.append(' '.join(text_pair[1][:-4].strip().split()))
@@ -151,6 +161,19 @@ def main():
     united_text_corpus = sorted(list(set(united_text_corpus)))
     fredt5_logger.info(f'There are {len(united_text_corpus)} unique texts. The maximal text length is {max_text_len}.')
     fredt5_logger.info(f'The maximal characters in the text is {max_text_len}.')
+
+    if args.few_shot:
+        try:
+            data_for_training = add_few_shot_tasks(data_for_training)
+        except Exception as err:
+            fredt5_logger.error(str(err))
+            raise
+        n_training_samples = 0
+        for cur_task in tasks_for_training:
+            n_training_samples += len(data_for_training[cur_task])
+        info_msg = (f'The few-shot examples are added. The total number of training samples '
+                    f'after the training set extension is {n_training_samples}.')
+        fredt5_logger.info(info_msg)
 
     try:
         scorer = load_evaluator(scorer_path, args.eval_batch_size, united_text_corpus)

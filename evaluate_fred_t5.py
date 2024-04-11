@@ -48,6 +48,8 @@ def main():
                         help='The mini-batch size for the BERT score calculator.')
     parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
                         help='The maximal number of validation samples per validated task.')
+    parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
+                        help='The <LM> tag is not used.')
     args = parser.parse_args()
 
     report_name = os.path.normpath(args.output_report_name)
@@ -99,7 +101,7 @@ def main():
 
     n_training_samples = 0
     try:
-        data_for_training = load_trainset(traindata_name)
+        data_for_training = load_trainset(traindata_name, lm_tag=not args.no_lm_tag)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -110,7 +112,10 @@ def main():
         n_training_samples += len(data_for_training[cur_task])
         for text_pair in data_for_training[cur_task]:
             if cur_task != 'asr_correction':
-                united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
+                if args.no_lm_tag:
+                    united_text_corpus.append(' '.join(text_pair[0].strip().split()))
+                else:
+                    united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
                 if len(united_text_corpus[-1]) > max_text_len:
                     max_text_len = len(united_text_corpus[-1])
             united_text_corpus.append(' '.join(text_pair[1][:-4].strip().split()))
@@ -119,7 +124,7 @@ def main():
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
 
     try:
-        data_for_validation = load_trainset(testdata_name)
+        data_for_validation = load_trainset(testdata_name, lm_tag=not args.no_lm_tag)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -129,7 +134,10 @@ def main():
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
         for text_pair in data_for_validation[cur_task]:
             if cur_task != 'asr_correction':
-                united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
+                if args.no_lm_tag:
+                    united_text_corpus.append(' '.join(text_pair[0].strip().split()))
+                else:
+                    united_text_corpus.append(' '.join(text_pair[0][4:].strip().split()))
                 if len(united_text_corpus[-1]) > max_text_len:
                     max_text_len = len(united_text_corpus[-1])
             united_text_corpus.append(' '.join(text_pair[1][:-4].strip().split()))

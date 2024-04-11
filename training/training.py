@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple
 
 import torch
 
-from instructions.instructions import KNOWN_TASKS
+from instructions.instructions import KNOWN_TASKS, get_task_type
 
 
 def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_id: int,
@@ -63,7 +63,7 @@ def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_i
     return input_token_ids_, input_attention_, target_token_ids_, target_attention_
 
 
-def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
+def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, str]]]:
     true_header = ['input', 'target']
     loaded_header = None
     line_idx = 1
@@ -96,20 +96,18 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                     if len(target_text[-4:].strip()) == 0:
                         err_msg += f' The target text is empty! {input_text}'
                         raise ValueError(err_msg)
-                    task_id = -1
-                    for idx, val in enumerate(KNOWN_TASKS):
-                        if input_text[4:].startswith(val[0]):
-                            task_id = idx
-                            prompt = val[0]
-                            context = input_text[(4 + len(val[0])):].strip()
-                            while context.startswith('-'):
-                                context = context[1:].strip()
-                            if len(context) == 0:
-                                err_msg += f' The command context is empty! {input_text}'
-                                raise ValueError(err_msg)
-                            input_text = '<LM>' + prompt.strip() + ' ' + context
-                            break
-                    if task_id < 0:
+                    task_id = get_task_type(input_text, use_lm_tag=True)
+                    if task_id >= 0:
+                        task_name = KNOWN_TASKS[task_id][1]
+                        prompt = KNOWN_TASKS[task_id][0]
+                        context = input_text[(4 + len(prompt)):].strip()
+                        while context.startswith('-'):
+                            context = context[1:].strip()
+                        if len(context) == 0:
+                            err_msg += f' The command context is empty! {input_text}'
+                            raise ValueError(err_msg)
+                        input_text = '<LM>' + prompt.strip() + ' ' + context
+                    else:
                         task_name = 'unknown'
                         instruction = input_text[4:].strip()
                         while instruction.startswith('-'):
@@ -118,8 +116,6 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
                             err_msg += f' The instruction is empty! {input_text}'
                             raise ValueError(err_msg)
                         input_text = '<LM>' + instruction
-                    else:
-                        task_name = KNOWN_TASKS[task_id][1]
                     input_text = input_text.replace('\r\n', '\n')
                     target_text = target_text.strip()
                     while target_text.startswith('-'):
@@ -206,5 +202,122 @@ def load_trainset(fname: str) -> Dict[str, List[Tuple[str, str]]]:
         del all_indices
     list_of_tasks = sorted(list(res.keys()))
     for cur_task in list_of_tasks:
-        res[cur_task] = sorted(list(set(res[cur_task])))
+        samples_for_task = sorted(list(set(res[cur_task])))
+        del res[cur_task]
+        if lm_tag:
+            res[cur_task] = samples_for_task
+        else:
+            res[cur_task] = []
+            for input_text, target_text in samples_for_task:
+                if not input_text.startswith('<LM>'):
+                    err_msg = f'The input text is not started from <LM>: {input_text}'
+                    raise ValueError(err_msg)
+                res[cur_task].append((
+                    input_text[4:],
+                    target_text
+                ))
+        del samples_for_task
     return res
+
+
+def create_few_shot_sample(answer: Tuple[str, str], examples: List[Tuple[str, str]],
+                           with_system_prompt: bool) -> Tuple[str, str]:
+    if len(examples) == 0:
+        raise ValueError('The list of examples is empty!')
+    input_question = answer[0]
+    true_answer = answer[1]
+    use_lm_tag = input_question.startswith('<LM>')
+    for example_question, _ in examples:
+        use_lm_tag_ = example_question.startswith('<LM>')
+        if use_lm_tag:
+            if not use_lm_tag_:
+                err_msg = ('The input question does not correspond to one of the examples! '
+                           'The input question starts from <LM>.')
+            else:
+                err_msg = ''
+        else:
+            if use_lm_tag_:
+                err_msg = ('The input question does not correspond to one of the examples! '
+                           'The input question does not start from <LM>.')
+            else:
+                err_msg = ''
+        if len(err_msg) > 0:
+            raise ValueError(err_msg)
+    task_id = get_task_type(input_question, use_lm_tag=use_lm_tag)
+    if task_id < 0:
+        err_msg = f'The input question is incorrect! {input_question}'
+        raise ValueError(err_msg)
+    extended_input_question = '<LM>' if use_lm_tag else ''
+    if with_system_prompt:
+        extended_input_question += KNOWN_TASKS[task_id][0] + ' '
+    example_question, example_true_answer = examples[0]
+    if use_lm_tag:
+        example_question = example_question[(4 + len(KNOWN_TASKS[task_id][0])):].strip()
+    else:
+        example_question = example_question[len(KNOWN_TASKS[task_id][0]):].strip()
+    extended_input_question += 'Вопрос: ' + example_question + '\nОтвет: ' + example_true_answer[:-4]
+    for example_question, example_true_answer in examples[1:]:
+        if use_lm_tag:
+            example_question_ = example_question[(4 + len(KNOWN_TASKS[task_id][0])):].strip()
+        else:
+            example_question_ = example_question[len(KNOWN_TASKS[task_id][0]):].strip()
+        extended_input_question += '\n\nВопрос: ' + example_question_ + '\nОтвет: ' + example_true_answer[:-4]
+    extended_input_question += '\n\nВопрос: '
+    if use_lm_tag:
+        extended_input_question += input_question[(4 + len(KNOWN_TASKS[task_id][0])):].strip()
+    else:
+        extended_input_question += input_question[len(KNOWN_TASKS[task_id][0]):].strip()
+    extended_input_question += '\nОтвет: '
+    return extended_input_question, true_answer
+
+
+def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[Tuple[str, str]]]:
+    tasks_for_few_shot_inference = {
+        'detoxification',
+        'ner_location',
+        'ner_person',
+        'ner_organization',
+        'simplification'
+    }
+    MAX_CHARACTERS_IN_INPUT = 1500
+    MIN_SAMPLES_PER_TASK = 6
+    set_of_tasks = sorted(list(set(src.keys()) & tasks_for_few_shot_inference))
+    if len(set_of_tasks) == 0:
+        err_msg = 'There are no tasks for a few-shot inference!'
+        raise ValueError(err_msg)
+    for cur_task in set_of_tasks:
+        new_samples = []
+        src_short_samples = list(filter(lambda it: len(it[0] <= MAX_CHARACTERS_IN_INPUT), src[cur_task]))
+        if len(src_short_samples) < MIN_SAMPLES_PER_TASK:
+            err_msg = f'The task {cur_task} cannot be used for a few-shot inference!'
+            raise ValueError(err_msg)
+        for idx, val in enumerate(src_short_samples):
+            other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
+            indices_of_examples = random.sample(
+                population=other_indices,
+                k=random.randint(1, MIN_SAMPLES_PER_TASK - 1)
+            )
+            new_samples.append(create_few_shot_sample(
+                val,
+                [src_short_samples[i] for i in indices_of_examples],
+                True
+            ))
+        src[cur_task] += new_samples
+        del new_samples
+        new_samples = []
+        for idx, val in enumerate(src_short_samples):
+            other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
+            indices_of_examples = random.sample(
+                population=other_indices,
+                k=random.randint(2, MIN_SAMPLES_PER_TASK - 1)
+            )
+            new_samples.append(create_few_shot_sample(
+                val,
+                [src_short_samples[i] for i in indices_of_examples],
+                False
+            ))
+        if 'unknown' not in src:
+            src['unknown'] = []
+        src['unknown'] += new_samples
+        del new_samples, src_short_samples
+    return src
