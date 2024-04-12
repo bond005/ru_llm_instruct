@@ -292,7 +292,7 @@ class TestFactRuEval(unittest.TestCase):
                 (1808, 1824)
             ],
             'person': [
-                
+
             ]
         }
         loaded_text, loaded_entities = load_sample(dataset_path, dataset_item)

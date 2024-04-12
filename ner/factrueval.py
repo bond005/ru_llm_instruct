@@ -67,7 +67,8 @@ def find_entity_by_char_pos(char_pos: int, entities: List[Tuple[int, int]]) -> i
     return found_idx
 
 
-def load_named_entities(spans: Dict[int, Tuple[int, int]], ne_fname: str) -> Dict[str, List[Tuple[int, int]]]:
+def load_named_entities(spans: Dict[int, Tuple[int, int]], ne_fname: str,
+                        join_nested_entities: bool = True) -> Dict[str, List[Tuple[int, int]]]:
     res = dict()
     line_idx = 1
     with codecs.open(ne_fname, mode='r', encoding='utf-8', errors='ignore') as fp:
@@ -123,18 +124,6 @@ def load_named_entities(spans: Dict[int, Tuple[int, int]], ne_fname: str) -> Dic
                 )
                 entity_start = spans[sorted_spans_in_entity[0]][0]
                 entity_end = spans[sorted_spans_in_entity[-1]][1]
-                for char_pos in range(entity_start, entity_end):
-                    other_entity_index = find_entity_by_char_pos(char_pos, res[entity_type])
-                    if other_entity_index >= 0:
-                        err_msg += (f' The new entity is superimposed on another entity '
-                                    f'{entity_type, res[entity_type][other_entity_index]}.')
-                        raise ValueError(err_msg)
-                for other_entity_type in set(res.keys()) - {entity_type}:
-                    other_entity_index = find_entity_by_char_pos(char_pos, res[other_entity_type])
-                    if other_entity_index >= 0:
-                        err_msg += (f' The new entity is superimposed on another entity '
-                                    f'{other_entity_type, res[other_entity_type][other_entity_index]}.')
-                        raise ValueError(err_msg)
                 res[entity_type].append((entity_start, entity_end))
             line_idx += 1
             curline = fp.readline()
