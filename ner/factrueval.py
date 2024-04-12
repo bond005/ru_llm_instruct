@@ -67,8 +67,7 @@ def find_entity_by_char_pos(char_pos: int, entities: List[Tuple[int, int]]) -> i
     return found_idx
 
 
-def load_named_entities(spans: Dict[int, Tuple[int, int]], ne_fname: str,
-                        join_nested_entities: bool = True) -> Dict[str, List[Tuple[int, int]]]:
+def load_named_entities(spans: Dict[int, Tuple[int, int]], ne_fname: str) -> Dict[str, List[Tuple[int, int]]]:
     res = dict()
     line_idx = 1
     with codecs.open(ne_fname, mode='r', encoding='utf-8', errors='ignore') as fp:
@@ -132,7 +131,8 @@ def load_named_entities(spans: Dict[int, Tuple[int, int]], ne_fname: str,
     return res
 
 
-def load_sample(dataset_path: str, item_name: str) -> Tuple[str, Dict[str, List[Tuple[int, int]]]]:
+def load_sample(dataset_path: str, item_name: str,
+                join_nested_entities: bool = True) -> Tuple[str, Dict[str, List[Tuple[int, int]]]]:
     if not os.path.isdir(dataset_path):
         raise ValueError(f'The directory "{dataset_path}" does not exist!')
     txt_fname = os.path.join(dataset_path, item_name + '.txt')
