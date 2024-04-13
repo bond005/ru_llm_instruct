@@ -3,6 +3,12 @@ import copy
 import os
 from typing import Dict, List, Tuple
 
+from nltk import wordpunct_tokenize
+
+
+def tokenize_text(s: str) -> List[str]:
+    return list(filter(lambda x: x.isalnum(), wordpunct_tokenize(s)))
+
 
 def load_spans(text: str, span_fname: str) -> Dict[int, Tuple[int, int]]:
     res = dict()
@@ -51,7 +57,7 @@ def load_spans(text: str, span_fname: str) -> Dict[int, Tuple[int, int]]:
                 subtext = ' '.join(text[start_pos:(start_pos + span_length)].strip().split())
                 if len(subtext) == 0:
                     raise ValueError(err_msg + ' The sub-text is empty!')
-                if subtext != span_text:
+                if not (set(tokenize_text(span_text)) <= set(tokenize_text(subtext))):
                     err_msg += f' The text {subtext} does not correspond to the text {span_text}'
                     raise ValueError(err_msg)
                 if span_id in res:
