@@ -27,5 +27,13 @@ def load_samples(fname: str) -> List[Tuple[str, str]]:
         print(f'There are no long texts in the "{fname}".')
         return []
     text_pairs = []
-    
-    return texts
+    n_multiparagraph_samples = 0
+    for cur_text in texts:
+        paragraphs = cur_text.split('\n')
+        if len(paragraphs) > 1:
+            n_multiparagraph_samples += 1
+            text_pairs.append((' '.join(paragraphs), cur_text))
+        else:
+            text_pairs.append((cur_text, cur_text))
+    print(f'There are {n_multiparagraph_samples} multiparagraph texts from {len(texts)} in the "{fname}".')
+    return text_pairs

@@ -6,7 +6,7 @@ import os
 import warnings
 from typing import List
 
-from nltk import wordpunct_tokenize
+from segmentation.segmentation import load_samples
 
 
 def find_all_textfiles(basedir: str) -> List[str]:
@@ -27,28 +27,6 @@ def find_all_textfiles(basedir: str) -> List[str]:
         textfiles += list(filter(lambda x: x.endswith('.txt'), os.listdir(it)))
         textfiles += find_all_textfiles(it)
     return textfiles
-
-
-def load_text_file(fname: str) -> List[str]:
-    texts = []
-    new_text = []
-    with codecs.open(fname, mode='r', encoding='utf-8') as fp:
-        curline = fp.readline()
-        while len(curline) > 0:
-            prepline = curline.strip()
-            if len(prepline) > 0:
-                words_in_line = wordpunct_tokenize(prepline)
-                if len(words_in_line) < 5:
-                    if len(new_text) > 0:
-                        texts.append('\n'.join(new_text))
-                    del new_text
-                    new_text = []
-                else:
-                    new_text.append(' '.join(prepline.split()))
-            curline = fp.readline()
-    if len(new_text) > 0:
-        texts.append('\n'.join(new_text))
-    return texts
 
 
 def main():
