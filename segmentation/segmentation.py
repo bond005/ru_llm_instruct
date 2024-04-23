@@ -4,7 +4,7 @@ from typing import List, Tuple
 from nltk import wordpunct_tokenize
 
 
-def load_samples(fname: str) -> List[Tuple[str, str]]:
+def load_samples_from_taiga(fname: str) -> List[Tuple[str, str]]:
     texts = []
     new_text = []
     with codecs.open(fname, mode='r', encoding='utf-8') as fp:
