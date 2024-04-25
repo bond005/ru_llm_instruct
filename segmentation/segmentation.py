@@ -5,25 +5,62 @@ from nltk import wordpunct_tokenize
 
 
 def load_samples_from_taiga(fname: str) -> List[Tuple[str, str]]:
-    texts = []
-    new_text = []
+    paragraphs = []
+    new_paragraph = ''
     with codecs.open(fname, mode='r', encoding='utf-8') as fp:
         curline = fp.readline()
         while len(curline) > 0:
-            prepline = curline.strip()
+            prepline = ' '.join((curline.strip().replace('--', '—').split()))
             if len(prepline) > 0:
-                words_in_line = wordpunct_tokenize(prepline)
-                if len(words_in_line) < 5:
-                    if len(new_text) > 0:
-                        texts.append('\n'.join(new_text))
-                    del new_text
-                    new_text = []
+                words_in_line = list(filter(lambda it: it.isalpha(), wordpunct_tokenize(prepline)))
+                if len(words_in_line) < 1:
+                    if len(new_paragraph) > 0:
+                        paragraphs.append(' '.join(new_paragraph.split()))
+                        new_paragraph = ''
+                    paragraphs.append(prepline)
                 else:
-                    new_text.append(' '.join(prepline.split()))
+                    if len(new_paragraph) == 0:
+                        new_paragraph = prepline
+                    else:
+                        if new_paragraph[-1] in {'.', '?', '!', '…'}:
+                            paragraphs.append(' '.join(new_paragraph.split()))
+                            new_paragraph = prepline
+                        else:
+                            if prepline.startswith('—') or prepline.startswith('-') or prepline[0].isdigit():
+                                paragraphs.append(' '.join(new_paragraph.split()))
+                                new_paragraph = prepline
+                            else:
+                                if words_in_line[0].istitle() or ' '.join(words_in_line).isupper():
+                                    paragraphs.append(' '.join(new_paragraph.split()))
+                                    new_paragraph = prepline
+                                else:
+                                    new_paragraph += ' ' + prepline
+            else:
+                if len(new_paragraph) > 0:
+                    paragraphs.append(' '.join(new_paragraph.split()))
+                    new_paragraph = ''
             curline = fp.readline()
+    if len(new_paragraph) > 0:
+        paragraphs.append(' '.join(new_paragraph.split()))
+    if len(paragraphs) == 0:
+        print(f'There are no paragraphs in the "{fname}".')
+        return []
+    texts = []
+    new_text = ''
+    for cur_paragraph in paragraphs:
+        words_in_paragraph = list(filter(lambda it: it.isalpha(), wordpunct_tokenize(cur_paragraph)))
+        if len(words_in_paragraph) < 1:
+            if len(new_text) > 0:
+                texts.append(new_text.strip())
+                new_text = ''
+        else:
+            if len(new_text) == 0:
+                new_text = cur_paragraph
+            else:
+                new_text += ('\n' + cur_paragraph)
     if len(new_text) > 0:
-        texts.append('\n'.join(new_text))
-    if len(texts) == 0:
+        texts.append(new_text.strip())
+    if len(texts) < 1:
         print(f'There are no long texts in the "{fname}".')
         return []
     text_pairs = []
