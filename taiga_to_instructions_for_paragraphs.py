@@ -72,6 +72,8 @@ def main():
         raise ValueError(err_msg)
 
     random.shuffle(all_textfiles)
+    if len(all_textfiles) > 2000:
+        all_textfiles = all_textfiles[:2000]
     print(f'There are {len(all_textfiles)} text files.')
     train_fp = None
     validation_fp = None
@@ -83,13 +85,17 @@ def main():
         trainset_writer.writerow(['input', 'target'])
         valset_writer.writerow(['input', 'target'])
         for cur_textfile in tqdm(all_textfiles):
-            new_samples = load_samples_from_taiga(cur_textfile)
-            if random.random() > 0.9:
-                for cur_input, cur_target in new_samples:
-                    valset_writer.writerow([cur_input, cur_target])
-            else:
-                for cur_input, cur_target in new_samples:
-                    trainset_writer.writerow([cur_input, cur_target])
+            new_samples = list(filter(
+                lambda cur: len(cur[0]) < 20_000,
+                load_samples_from_taiga(cur_textfile)
+            ))
+            if len(new_samples) > 0:
+                if random.random() > 0.9:
+                    for cur_input, cur_target in new_samples:
+                        valset_writer.writerow([cur_input, cur_target])
+                else:
+                    for cur_input, cur_target in new_samples:
+                        trainset_writer.writerow([cur_input, cur_target])
     finally:
         if train_fp is not None:
             train_fp.close()
