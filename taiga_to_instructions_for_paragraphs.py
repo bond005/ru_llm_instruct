@@ -3,10 +3,11 @@ import codecs
 import csv
 import random
 import os
-import warnings
 from typing import List
 
-from segmentation.segmentation import load_samples
+from tqdm import tqdm
+
+from segmentation.segmentation import load_samples_from_taiga
 
 
 def find_all_textfiles(basedir: str) -> List[str]:
@@ -24,7 +25,13 @@ def find_all_textfiles(basedir: str) -> List[str]:
         return []
     textfiles = []
     for it in all_items:
-        textfiles += list(filter(lambda x: x.endswith('.txt'), os.listdir(it)))
+        textfiles += list(map(
+            lambda y: os.path.join(it, y),
+            filter(
+                lambda x: x.endswith('.txt'),
+                os.listdir(it)
+            )
+        ))
         textfiles += find_all_textfiles(it)
     return textfiles
 
@@ -65,6 +72,7 @@ def main():
         raise ValueError(err_msg)
 
     random.shuffle(all_textfiles)
+    print(f'There are {len(all_textfiles)} text files.')
     train_fp = None
     validation_fp = None
     try:
@@ -74,13 +82,19 @@ def main():
         valset_writer = csv.writer(validation_fp, delimiter=',', quotechar='"')
         trainset_writer.writerow(['input', 'target'])
         valset_writer.writerow(['input', 'target'])
-
+        for cur_textfile in tqdm(all_textfiles):
+            new_samples = load_samples_from_taiga(cur_textfile)
+            if random.random() > 0.9:
+                for cur_input, cur_target in new_samples:
+                    valset_writer.writerow([cur_input, cur_target])
+            else:
+                for cur_input, cur_target in new_samples:
+                    trainset_writer.writerow([cur_input, cur_target])
     finally:
         if train_fp is not None:
             train_fp.close()
         if validation_fp is not None:
             validation_fp.close()
-    pass
 
 
 if __name__ == '__main__':
