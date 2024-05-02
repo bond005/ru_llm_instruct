@@ -54,6 +54,8 @@ def main():
                         help='The samples per training epoch.')
     parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
                         help='The maximal number of validation samples per validated task.')
+    parser.add_argument('--maxlen', dest='maxlen', type=int, required=False, default=None,
+                        help='The maximal number of tokens per input or target.')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -76,6 +78,16 @@ def main():
         raise ValueError(err_msg)
     fredt5_logger.info(f'Mini-batch size is {minibatch_size}.')
 
+    if args.maxlen is None:
+        maximal_number_of_tokens = None
+    else:
+        maximal_number_of_tokens = args.maxlen
+        if maximal_number_of_tokens < 10:
+            err_msg = (f'The maximal number of tokens per input or target is too small! Expected 10 or greater, '
+                       f'got {maximal_number_of_tokens}.')
+            fredt5_logger.error(err_msg)
+            raise ValueError(err_msg)
+
     dataset_fname = os.path.normpath(args.data_name)
     if not os.path.isfile(dataset_fname):
         err_msg = f'The file {dataset_fname} does not exist!'
@@ -93,6 +105,9 @@ def main():
         err_msg = f'The directory {scorer_path} does not exist!'
         fredt5_logger.error(err_msg)
         raise IOError(err_msg)
+
+    tokenizer = GPT2Tokenizer.from_pretrained(pretrained_dir_name)
+    fredt5_logger.info(f'The pre-trained tokenizer "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
     with codecs.open(dataset_fname, mode='r', encoding='utf-8', errors='ignore') as fp:
         data = json.load(fp)
@@ -112,6 +127,18 @@ def main():
     tasks_for_training = sorted(list(data_for_training.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_training)} tasks for training.')
     for cur_task in tasks_for_training:
+        if maximal_number_of_tokens is not None:
+            data_for_training[cur_task] = list(filter(
+                lambda sample: (len(tokenizer.tokenize(sample[0])) <= maximal_number_of_tokens) and
+                               (len(tokenizer.tokenize(sample[1])) <= maximal_number_of_tokens),
+                data_for_training[cur_task]
+            ))
+            if len(data_for_training[cur_task]) == 0:
+                err_msg = (f'The maximal number of tokens per input or target = {maximal_number_of_tokens} '
+                           f'is too strict! There are no samples of task {cur_task} in the training data '
+                           f'after filtering.')
+                fredt5_logger.error(err_msg)
+                raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_training[cur_task])} training samples for task {cur_task}.')
         n_training_samples += len(data_for_training[cur_task])
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
@@ -124,6 +151,18 @@ def main():
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
     for cur_task in tasks_for_validation:
+        if maximal_number_of_tokens is not None:
+            data_for_validation[cur_task] = list(filter(
+                lambda sample: (len(tokenizer.tokenize(sample[0])) <= maximal_number_of_tokens) and
+                               (len(tokenizer.tokenize(sample[1])) <= maximal_number_of_tokens),
+                data_for_validation[cur_task]
+            ))
+            if len(data_for_validation[cur_task]) == 0:
+                err_msg = (f'The maximal number of tokens per input or target = {maximal_number_of_tokens} '
+                           f'is too strict! There are no samples of task {cur_task} in the validation data '
+                           f'after filtering.')
+                fredt5_logger.error(err_msg)
+                raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
     try:
@@ -135,7 +174,6 @@ def main():
 
     model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
     model.eval()
-    tokenizer = GPT2Tokenizer.from_pretrained(pretrained_dir_name)
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
     tokenizer.save_pretrained(finetuned_dir_name)
@@ -144,7 +182,7 @@ def main():
 
     generation_config = GenerationConfig(
         early_stopping=True, do_sample=False, num_beams=6,
-        max_length=3 + round(1.2 * max_text_len),
+        max_length=3 + round(1.2 * (max_text_len if (maximal_number_of_tokens is None) else maximal_number_of_tokens)),
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.pad_token_id,
         decoder_start_token_id=tokenizer.pad_token_id
