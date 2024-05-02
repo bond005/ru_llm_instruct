@@ -133,7 +133,7 @@ def main():
         raise
     fredt5_logger.info(f'The BERT scorer based on FRED-T5 "{os.path.basename(scorer_path)}" is loaded.')
 
-    model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name).to(device)
+    model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
     model.eval()
     tokenizer = GPT2Tokenizer.from_pretrained(pretrained_dir_name)
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')

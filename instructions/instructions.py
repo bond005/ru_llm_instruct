@@ -382,7 +382,7 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
 def load_evaluator(model_path: str, evaluation_batch_size: int,
                    corpus: List[str]) -> Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]:
     tokenizer = GPT2Tokenizer.from_pretrained(model_path)
-    model = T5EncoderModel.from_pretrained(model_path).cuda()
+    model = T5EncoderModel.from_pretrained(model_path, torch_dtype=torch.bfloat16).cuda()
     model.eval()
     num_layers = len(model.encoder.block) - 1
     model.encoder.block = torch.nn.ModuleList(
