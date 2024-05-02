@@ -1,12 +1,17 @@
 import codecs
 import copy
 import csv
+import json
+import logging
 import random
 from typing import Dict, List, Tuple
 
 import torch
 
 from instructions.instructions import KNOWN_TASKS, get_task_type
+
+
+training_logger = logging.getLogger(__name__)
 
 
 def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_id: int,
@@ -25,7 +30,8 @@ def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_i
     if len(tasks_for_batch) != minibatch:
         err_msg = (f'The minibatch size does not equal to the number of selected tasks. '
                    f'{minibatch} != {len(tasks_for_batch)}')
-        raise ValueError(err_msg)
+        training_logger.error(err_msg)
+        raise RuntimeError(err_msg)
     input_token_ids = []
     input_attention = []
     target_token_ids = []
@@ -77,25 +83,31 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
                     loaded_header = copy.copy(row)
                     if loaded_header != true_header:
                         err_msg += f' The loaded header is impossible! Expected {true_header}, got {loaded_header}.'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg)
+                        raise IOError(err_msg)
                 else:
                     if len(row) != len(loaded_header):
                         err_msg += f' The row size is impossible! Expected {len(loaded_header)}, got {len(row)}.'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg + f' {row}')
+                        raise IOError(err_msg + f' {row}')
                     input_text = row[0].strip()
                     target_text = row[1].strip()
                     if not input_text.startswith('<LM>'):
                         err_msg += f' The input text is impossible! It must be started with <LM>. {input_text}'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg)
+                        raise IOError(err_msg)
                     if not target_text.endswith('</s>'):
                         err_msg += f' The target text is impossible! It must be ended with </s>. {target_text}'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg)
+                        raise IOError(err_msg)
                     if len(input_text[4:].strip()) == 0:
                         err_msg += f' The input text is empty! {input_text}'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg)
+                        raise IOError(err_msg)
                     if len(target_text[-4:].strip()) == 0:
                         err_msg += f' The target text is empty! {input_text}'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg)
+                        raise IOError(err_msg)
                     task_id = get_task_type(input_text, use_lm_tag=True)
                     if task_id >= 0:
                         task_name = KNOWN_TASKS[task_id][1]
@@ -105,7 +117,8 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
                             context = context[1:].strip()
                         if len(context) == 0:
                             err_msg += f' The command context is empty! {input_text}'
-                            raise ValueError(err_msg)
+                            training_logger.error(err_msg)
+                            raise IOError(err_msg)
                         input_text = '<LM>' + prompt.strip() + ' ' + context
                     else:
                         task_name = 'unknown'
@@ -114,7 +127,8 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
                             instruction = instruction[1:].strip()
                         if len(instruction) == 0:
                             err_msg += f' The instruction is empty! {input_text}'
-                            raise ValueError(err_msg)
+                            training_logger.error(err_msg)
+                            raise IOError(err_msg)
                         input_text = '<LM>' + instruction
                     input_text = input_text.replace('\r\n', '\n')
                     target_text = target_text.strip()
@@ -122,7 +136,8 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
                         target_text = target_text[1:].strip()
                     if len(target_text) == 0:
                         err_msg += f' The target is empty! {target_text}'
-                        raise ValueError(err_msg)
+                        training_logger.error(err_msg)
+                        raise IOError(err_msg)
                     target_text = target_text.replace('\r\n', '\n')
                     if task_name not in res:
                         res[task_name] = []
@@ -211,7 +226,8 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
             for input_text, target_text in samples_for_task:
                 if not input_text.startswith('<LM>'):
                     err_msg = f'The input text is not started from <LM>: {input_text}'
-                    raise ValueError(err_msg)
+                    training_logger.error(err_msg)
+                    raise IOError(err_msg)
                 res[cur_task].append((
                     input_text[4:],
                     target_text
@@ -223,7 +239,9 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
 def create_few_shot_sample(answer: Tuple[str, str], examples: List[Tuple[str, str]],
                            with_system_prompt: bool) -> Tuple[str, str]:
     if len(examples) == 0:
-        raise ValueError('The list of examples is empty!')
+        err_msg = 'The list of examples is empty!'
+        training_logger.error(err_msg)
+        raise ValueError(err_msg)
     input_question = answer[0]
     true_answer = answer[1]
     use_lm_tag = input_question.startswith('<LM>')
@@ -242,10 +260,12 @@ def create_few_shot_sample(answer: Tuple[str, str], examples: List[Tuple[str, st
             else:
                 err_msg = ''
         if len(err_msg) > 0:
+            training_logger.error(err_msg)
             raise ValueError(err_msg)
     task_id = get_task_type(input_question, use_lm_tag=use_lm_tag)
     if task_id < 0:
         err_msg = f'The input question is incorrect! {input_question}'
+        training_logger.error(err_msg)
         raise ValueError(err_msg)
     extended_input_question = '<LM>' if use_lm_tag else ''
     if with_system_prompt:
@@ -284,12 +304,14 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
     set_of_tasks = sorted(list(set(src.keys()) & tasks_for_few_shot_inference))
     if len(set_of_tasks) == 0:
         err_msg = 'There are no tasks for a few-shot inference!'
+        training_logger.error(err_msg)
         raise ValueError(err_msg)
     for cur_task in set_of_tasks:
         new_samples = []
-        src_short_samples = list(filter(lambda it: len(it[0] <= MAX_CHARACTERS_IN_INPUT), src[cur_task]))
+        src_short_samples = list(filter(lambda it: len(it[0]) <= MAX_CHARACTERS_IN_INPUT, src[cur_task]))
         if len(src_short_samples) < MIN_SAMPLES_PER_TASK:
             err_msg = f'The task {cur_task} cannot be used for a few-shot inference!'
+            training_logger.error(err_msg)
             raise ValueError(err_msg)
         for idx, val in enumerate(src_short_samples):
             other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
@@ -302,7 +324,16 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
                 [src_short_samples[i] for i in indices_of_examples],
                 True
             ))
-        src[cur_task] += new_samples
+        if len(new_samples) > 0:
+            info_msg = f'Task {cur_task}: {len(new_samples)} few-shot samples are added.'
+            training_logger.info(info_msg)
+            if len(new_samples) > 2:
+                selected_samples_for_print = random.sample(population=new_samples, k=2)
+            else:
+                selected_samples_for_print = new_samples
+            for cur in selected_samples_for_print:
+                training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
+            src[cur_task] += new_samples
         del new_samples
         new_samples = []
         for idx, val in enumerate(src_short_samples):
@@ -316,8 +347,17 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
                 [src_short_samples[i] for i in indices_of_examples],
                 False
             ))
-        if 'unknown' not in src:
-            src['unknown'] = []
-        src['unknown'] += new_samples
+        if len(new_samples) > 0:
+            info_msg = f'Task unknown: {len(new_samples)} few-shot samples are added.'
+            training_logger.info(info_msg)
+            if len(new_samples) > 2:
+                selected_samples_for_print = random.sample(population=new_samples, k=2)
+            else:
+                selected_samples_for_print = new_samples
+            for cur in selected_samples_for_print:
+                training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
+            if 'unknown' not in src:
+                src['unknown'] = []
+            src['unknown'] += new_samples
         del new_samples, src_short_samples
     return src

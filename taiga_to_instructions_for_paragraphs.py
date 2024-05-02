@@ -8,6 +8,7 @@ from typing import List
 from tqdm import tqdm
 
 from segmentation.segmentation import load_samples_from_taiga
+from instructions.instructions import KNOWN_TASKS
 
 
 def find_all_textfiles(basedir: str) -> List[str]:
@@ -45,6 +46,14 @@ def main():
     parser.add_argument('-e', '--eval', dest='eval_fname', type=str, required=True,
                         help='The output CSV file name with instructions for evaluation.')
     args = parser.parse_args()
+
+    segmentation_instruction = ''
+    for val in KNOWN_TASKS:
+        if val[1] == 'segmentation':
+            segmentation_instruction = val[0]
+            break
+    if len(segmentation_instruction) == 0:
+        raise RuntimeError(f'The segmentation instruction is unknown! {KNOWN_TASKS}')
 
     corpus_dir = os.path.normpath(args.source_corpus_name)
     if not os.path.isdir(corpus_dir):
@@ -92,10 +101,10 @@ def main():
             if len(new_samples) > 0:
                 if random.random() > 0.9:
                     for cur_input, cur_target in new_samples:
-                        valset_writer.writerow([cur_input, cur_target])
+                        valset_writer.writerow([f'<LM>{segmentation_instruction} ' + cur_input, cur_target + '</s>'])
                 else:
                     for cur_input, cur_target in new_samples:
-                        trainset_writer.writerow([cur_input, cur_target])
+                        trainset_writer.writerow([f'<LM>{segmentation_instruction} ' + cur_input, cur_target + '</s>'])
     finally:
         if train_fp is not None:
             train_fp.close()
