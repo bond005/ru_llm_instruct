@@ -14,7 +14,7 @@ from transformers import T5ForConditionalGeneration, GPT2Tokenizer, Adafactor, G
 import torch
 
 from instructions.instructions import evaluate, load_evaluator
-from training.training import sample_batch, load_trainset, add_few_shot_tasks
+from training.training import sample_batch
 from training.training import training_logger
 
 
