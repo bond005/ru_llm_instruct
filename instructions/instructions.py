@@ -1,4 +1,3 @@
-import copy
 import math
 from multiprocessing import Pool
 import os
@@ -12,9 +11,8 @@ from seqeval.metrics import f1_score as ner_f1_score
 from scipy.stats import hmean
 from sklearn.metrics import f1_score
 import spacy
-import torch
 from tqdm import trange
-from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration, T5EncoderModel
+from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
