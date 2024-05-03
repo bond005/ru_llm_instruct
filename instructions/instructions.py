@@ -5,19 +5,20 @@ import os
 import random
 from typing import Dict, List, Tuple
 
-from bert_score import bert_cos_score_idf, get_idf_dict
 from nltk import wordpunct_tokenize
+from nltk.translate.chrf_score import sentence_chrf
 import numpy as np
 from seqeval.metrics import f1_score as ner_f1_score
 from scipy.stats import hmean
 from sklearn.metrics import f1_score
+import spacy
 import torch
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration, T5EncoderModel
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
-from utils.utils import calculate_word_error_rate, process_target
+from utils.utils import calculate_word_error_rate, process_target, normalize_text
 
 
 KNOWN_TASKS = [
@@ -289,15 +290,13 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
 
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
-                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
-                      scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
+                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int) -> (
         Tuple)[float, List[Dict[str, str]]]:
     if len(data_for_validation) < 1:
         raise ValueError(f'The validation data are empty!')
     printed_results = []
     candidates = []
     references = []
-    texts_for_idf = copy.copy(scorer[3])
     n_batches = math.ceil(len(data_for_validation) / minibatch)
     for batch_idx in trange(n_batches):
         batch_start = batch_idx * minibatch
@@ -306,7 +305,6 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
         predicted_texts = generate_answer(input_texts, tokenizer, config, model)
         for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
-            texts_for_idf.append(predicted_)
             candidates.append(predicted_)
             if len(target_) == 0:
                 err_msg = f'The evaluation pair ({input_}, {target_}) is wrong, because the target is empty!'
@@ -323,41 +321,25 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         raise ValueError(err_msg)
     if len(printed_results) > 5:
         printed_results = random.sample(printed_results, k=5)
-    idf_dict = get_idf_dict(texts_for_idf, scorer[0], nthreads=max(1, os.cpu_count()))
-    del texts_for_idf
-    try:
-        all_preds = bert_cos_score_idf(
-            model=scorer[1],
-            refs=references,
-            hyps=candidates,
-            tokenizer=scorer[0],
-            idf_dict=idf_dict,
-            device=scorer[1].device,
-            batch_size=scorer[2],
-            all_layers=False
-        ).cpu()
-    except:
-        indices = random.sample(population=list(range(len(references))), k=5)
-        for idx in indices:
-            print('')
-            print('TRUE:')
-            print(references[idx])
-            print('PREDICTED:')
-            print(candidates[idx])
-        raise
-    f1_list = all_preds[..., 2].numpy().tolist()
-    if len(references) != len(f1_list):
-        err_msg = f'The true answers do not correspond to the BERT scores! {len(references)} != {len(f1_list)}.'
+    nlp = spacy.load('ru_core_news_sm')
+    scores = list(map(
+        lambda it: sentence_chrf(
+            reference=normalize_text(it[0], nlp),
+            hypothesis=normalize_text(it[1], nlp)
+        ),
+        zip(references, candidates)
+    ))
+    if len(references) != len(scores):
+        err_msg = f'The true answers do not correspond to the CHRF scores! {len(references)} != {len(scores)}.'
         raise ValueError(err_msg)
-    f1_mean = float(np.mean(f1_list))
-    del idf_dict, f1_list, references, candidates
+    f1_mean = float(np.mean(scores))
+    del scores, references, candidates, nlp
     return f1_mean, printed_results
 
 
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
-             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
-             intelligent_scorer: Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]) -> (
-        Tuple)[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
+             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration,
+             minibatch: int) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
     for task in data_for_validation:
@@ -371,21 +353,8 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
         elif task.endswith('_detection'):
             res[task] = evaluate_danet(data_for_validation[task], tokenizer, config, model, minibatch)
         else:
-            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch,
-                                          intelligent_scorer)
+            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch)
         scores.append(max(res[task][0], 1e-9))
     mean_score = float(hmean(scores))
     del scores
     return mean_score, res
-
-
-def load_evaluator(model_path: str, evaluation_batch_size: int,
-                   corpus: List[str]) -> Tuple[GPT2Tokenizer, T5EncoderModel, int, List[str]]:
-    tokenizer = GPT2Tokenizer.from_pretrained(model_path)
-    model = T5EncoderModel.from_pretrained(model_path, torch_dtype=torch.bfloat16).cuda()
-    model.eval()
-    num_layers = len(model.encoder.block) - 1
-    model.encoder.block = torch.nn.ModuleList(
-        [layer for layer in model.encoder.block[:num_layers]]
-    )
-    return tokenizer, model, evaluation_batch_size, corpus

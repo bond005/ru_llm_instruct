@@ -1,6 +1,7 @@
 from typing import List, Tuple, Union
 
 import numpy as np
+from spacy import Language
 
 
 def levenshtein(seq1: List[str], seq2: List[str]) -> float:
@@ -51,3 +52,25 @@ def process_target(s: str) -> str:
     while s_.endswith('</s>'):
         s_ = s_[:-4].strip()
     return s_
+
+
+def is_punctuation(s: str) -> bool:
+    characters = list(set(s))
+    if len(characters) == 0:
+        return False
+    ok = True
+    for c in characters:
+        if c.isalnum():
+            ok = False
+            break
+    return ok
+
+
+def normalize_text(s: str, spacy_nlp: Language) -> str:
+    doc = spacy_nlp(s)
+    normalized = ' '.join(filter(
+        lambda it2: (not is_punctuation(it2)) and (len(it2) > 0),
+        map(lambda it1: it1.lemma_.lower(), doc)
+    )).strip()
+    del doc
+    return normalized

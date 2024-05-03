@@ -13,7 +13,7 @@ from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, Adafactor, GenerationConfig
 import torch
 
-from instructions.instructions import evaluate, load_evaluator
+from instructions.instructions import evaluate
 from training.training import sample_batch
 from training.training import training_logger
 
@@ -46,10 +46,6 @@ def main():
                         help='The mini-batch size for FRED-T5.')
     parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=3e-4,
                         help='The learning rate.')
-    parser.add_argument('--eval_model', dest='eval_model', type=str, required=True,
-                        help='The path to the pre-trained FRED-T5 for using as a BERT score calculator.')
-    parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=True,
-                        help='The mini-batch size for the BERT score calculator.')
     parser.add_argument('--trainsize', dest='trainsize', type=int, required=False, default=None,
                         help='The samples per training epoch.')
     parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
@@ -97,12 +93,6 @@ def main():
     pretrained_dir_name = os.path.normpath(args.input_name)
     if not os.path.isdir(pretrained_dir_name):
         err_msg = f'The directory {pretrained_dir_name} does not exist!'
-        fredt5_logger.error(err_msg)
-        raise IOError(err_msg)
-
-    scorer_path = os.path.normpath(args.eval_model)
-    if not os.path.isdir(scorer_path):
-        err_msg = f'The directory {scorer_path} does not exist!'
         fredt5_logger.error(err_msg)
         raise IOError(err_msg)
 
@@ -164,13 +154,6 @@ def main():
                 fredt5_logger.error(err_msg)
                 raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
-
-    try:
-        scorer = load_evaluator(scorer_path, args.eval_batch_size, united_text_corpus)
-    except Exception as err:
-        fredt5_logger.error(str(err))
-        raise
-    fredt5_logger.info(f'The BERT scorer based on FRED-T5 "{os.path.basename(scorer_path)}" is loaded.')
 
     model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
     model.eval()
@@ -276,8 +259,7 @@ def main():
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,
-                                                tokenizer, generation_config, model, minibatch_size,
-                                                scorer)
+                                                tokenizer, generation_config, model, minibatch_size)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -326,8 +308,7 @@ def main():
         model.eval()
         try:
             cur_score, results_by_tasks = evaluate(data_for_validation,
-                                                   tokenizer, generation_config, model, minibatch_size,
-                                                   scorer)
+                                                   tokenizer, generation_config, model, minibatch_size)
         except Exception as err:
             fredt5_logger.error(str(err))
             raise
