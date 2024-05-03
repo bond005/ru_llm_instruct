@@ -276,7 +276,7 @@ def main():
         elif cur_task.endswith('_detection'):
             fredt5_logger.info('Yes/No F1 is {0:.6f}.'.format(instant_score))
         else:
-            fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(instant_score))
+            fredt5_logger.info('ChrF score F1 is {0:.6f}.'.format(instant_score))
     torch.cuda.empty_cache()
 
     for epoch in range(1, max_epochs + 1):
@@ -326,7 +326,7 @@ def main():
             elif cur_task.endswith('_detection'):
                 fredt5_logger.info('Epoch {0}: Yes/No F1 is {1:.6f}.'.format(epoch, instant_score))
             else:
-                fredt5_logger.info('Epoch {0}: BERT-score F1 is {1:.6f}.'.format(epoch, instant_score))
+                fredt5_logger.info('Epoch {0}: ChrF score F1 is {1:.6f}.'.format(epoch, instant_score))
         if cur_score > best_score:
             best_score = cur_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)
