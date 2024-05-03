@@ -11,6 +11,7 @@ from seqeval.metrics import f1_score as ner_f1_score
 from scipy.stats import hmean
 from sklearn.metrics import f1_score
 import spacy
+import torch
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
 
@@ -353,6 +354,7 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
         else:
             res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch)
         scores.append(max(res[task][0], 1e-9))
+        torch.cuda.empty_cache()
     mean_score = float(hmean(scores))
     del scores
     return mean_score, res
