@@ -277,6 +277,7 @@ def main():
             fredt5_logger.info('Yes/No F1 is {0:.6f}.'.format(instant_score))
         else:
             fredt5_logger.info('BERT-score F1 is {0:.6f}.'.format(instant_score))
+    torch.cuda.empty_cache()
 
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
@@ -332,6 +333,7 @@ def main():
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=True)
             generation_config.save_pretrained(finetuned_dir_name)
             fredt5_logger.info(f'The model is updated with score = {best_score}.')
+        torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':
