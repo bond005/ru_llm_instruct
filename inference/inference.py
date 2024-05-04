@@ -19,6 +19,7 @@ def fix_recognition_error(texts: List[str], tokenizer: GPT2Tokenizer, config: Ge
         ' '.join(tokenizer.decode(cur, skip_special_tokens=True).strip().split()) for cur in out
     ]
     del out
+    torch.cuda.empty_cache()
     united_results = []
     idx = 0
     for cur in texts:
@@ -45,6 +46,7 @@ def generate_answer(answers: List[str], tokenizer: GPT2Tokenizer, config: Genera
         tokenizer.decode(cur, skip_special_tokens=True).strip().replace('\r\n', '\n') for cur in out
     ]
     del out
+    torch.cuda.empty_cache()
     united_questions = []
     idx = 0
     for cur in answers:

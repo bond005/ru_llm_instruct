@@ -354,7 +354,6 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
         else:
             res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch)
         scores.append(max(res[task][0], 1e-9))
-        torch.cuda.empty_cache()
     mean_score = float(hmean(scores))
     del scores
     return mean_score, res
