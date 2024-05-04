@@ -1,5 +1,6 @@
 from typing import List
 
+import torch
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
 
 
