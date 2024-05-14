@@ -43,7 +43,11 @@ def main():
     parser.add_argument('-d', '--data', dest='data_name', type=str, required=True,
                         help='The JSON structured dataset name.')
     parser.add_argument('--batch', dest='batch_size', type=int, required=True,
-                        help='The mini-batch size for FRED-T5.')
+                        help='The mini-batch size for FRED-T5 training.')
+    parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=False, default=None,
+                        help='The mini-batch size for FRED-T5 evaluation.')
+    parser.add_argument('--accum', dest='gradient_accumulation', type=int, required=False, default=None,
+                        help='The gradient accumulation for FRED-T5 training.')
     parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=3e-4,
                         help='The learning rate.')
     parser.add_argument('--trainsize', dest='trainsize', type=int, required=False, default=None,
@@ -53,7 +57,7 @@ def main():
     parser.add_argument('--train_maxlen', dest='train_maxlen', type=int, required=False, default=None,
                         help='The maximal number of tokens per input or target for training.')
     parser.add_argument('--test_maxlen', dest='test_maxlen', type=int, required=False, default=None,
-                        help='The maximal number of tokens per input or target for vtesting.')
+                        help='The maximal number of tokens per input or target for testing.')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -75,6 +79,27 @@ def main():
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
     fredt5_logger.info(f'Mini-batch size is {minibatch_size}.')
+
+    if args.eval_batch_size is None:
+        eval_minibatch_size = minibatch_size
+    else:
+        eval_minibatch_size = args.eval_batch_size
+        if eval_minibatch_size <= 0:
+            err_msg = f'The mini-batch size {args.eval_batch_size} is wrong!'
+            fredt5_logger.error(err_msg)
+            raise ValueError(err_msg)
+        fredt5_logger.info(f'Mini-batch size for evaluation is {eval_minibatch_size}.')
+
+    if args.gradient_accumulation is None:
+        gradient_accumulation = 1
+    else:
+        gradient_accumulation = args.gradient_accumulation
+        if gradient_accumulation <= 0:
+            err_msg = f'The gradient accumulation {args.gradient_accumulation} is wrong!'
+            fredt5_logger.error(err_msg)
+            raise ValueError(err_msg)
+        if gradient_accumulation > 1:
+            fredt5_logger.info(f'Gradient accumulation step size is {gradient_accumulation}.')
 
     if args.train_maxlen is None:
         maximal_number_of_tokens_for_training = None
@@ -167,7 +192,7 @@ def main():
                 raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
-    model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
+    model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.float32).to(device)
     model.eval()
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
@@ -176,11 +201,12 @@ def main():
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
 
     if maximal_number_of_tokens_for_testing is None:
-        generation_max_length = 3 + round(1.2 * max_text_len)
+        generation_max_length = 3 + round(1.1 * max_text_len)
     else:
-        generation_max_length = 3 + round(1.2 * maximal_number_of_tokens_for_testing)
+        generation_max_length = 3 + round(1.1 * maximal_number_of_tokens_for_testing)
     generation_config = GenerationConfig(
-        early_stopping=True, do_sample=False, num_beams=6,
+        top_k=10,
+        penalty_alpha=0.6,
         max_length=generation_max_length,
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.pad_token_id,
@@ -213,14 +239,14 @@ def main():
     del data_for_training
     fredt5_logger.info(f'All training texts are tokenized.')
 
-    n_training_batches = int(np.ceil(n_training_samples / minibatch_size))
+    n_training_batches = int(np.ceil(n_training_samples / (minibatch_size * gradient_accumulation)))
     if args.trainsize is not None:
         if args.trainsize < 100:
             err_msg = f'The samples per training epoch is too small! Expected 100 or greater, got {args.trainsize}.'
             fredt5_logger.error(err_msg)
             raise ValueError(err_msg)
         if args.trainsize < n_training_samples:
-            n_training_batches = max(10, int(np.ceil(args.trainsize / minibatch_size)))
+            n_training_batches = max(10, int(np.ceil(args.trainsize / (minibatch_size * gradient_accumulation))))
             max_epochs = round(max_epochs * (n_training_samples / args.trainsize))
     fredt5_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
@@ -275,7 +301,7 @@ def main():
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,
-                                                tokenizer, generation_config, model, minibatch_size)
+                                                tokenizer, generation_config, model, eval_minibatch_size)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -299,24 +325,25 @@ def main():
         model.train()
         train_loss_val = 0.0
         for _ in trange(n_training_batches):
-            try:
-                x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
-                    data_for_training_,
-                    tokenizer.pad_token_id,
-                    minibatch_size
-                )
-            except Exception as err:
-                fredt5_logger.error(str(err))
-                raise
-            loss = model(
-                input_ids=x_input_ids.to(device),
-                attention_mask=x_attention_mask.to(device),
-                labels=y_input_ids.to(device),
-                decoder_attention_mask=y_attention_mask.to(device),
-                return_dict=True
-            ).loss
-            train_loss_val += float(loss.detach().cpu())
-            loss.backward()
+            for _ in range(gradient_accumulation):
+                try:
+                    x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
+                        data_for_training_,
+                        tokenizer.pad_token_id,
+                        minibatch_size
+                    )
+                except Exception as err:
+                    fredt5_logger.error(str(err))
+                    raise
+                loss = model(
+                    input_ids=x_input_ids.to(device),
+                    attention_mask=x_attention_mask.to(device),
+                    labels=y_input_ids.to(device),
+                    decoder_attention_mask=y_attention_mask.to(device),
+                    return_dict=True
+                ).loss / gradient_accumulation
+                train_loss_val += float(loss.detach().cpu())
+                loss.backward()
             optimizer.step()
             optimizer.zero_grad()
         train_loss_val /= n_training_batches
@@ -325,7 +352,7 @@ def main():
         torch.cuda.empty_cache()
         try:
             cur_score, results_by_tasks = evaluate(data_for_validation,
-                                                   tokenizer, generation_config, model, minibatch_size)
+                                                   tokenizer, generation_config, model, eval_minibatch_size)
         except Exception as err:
             fredt5_logger.error(str(err))
             raise
