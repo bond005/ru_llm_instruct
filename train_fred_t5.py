@@ -307,18 +307,19 @@ def main():
         raise
     fredt5_logger.info(f'United recognition score before training is {best_score}.')
     for cur_task in tasks_for_validation:
-        fredt5_logger.info(f'Recognition results for the task {cur_task} before training:')
+        info_msg = f'Before training: the task {cur_task} '
         instant_score, _ = results_by_tasks[cur_task]
         if cur_task == 'asr_correction':
-            fredt5_logger.info('Word accuracy is {0:.5%}.'.format(instant_score))
+            info_msg += 'word accuracy is {0:.5%}.'.format(instant_score)
         elif cur_task == 'segmentation':
-            fredt5_logger.info('Paragraph accuracy is {0:.5%}.'.format(instant_score))
+            info_msg += 'paragraph accuracy is {0:.5%}.'.format(instant_score)
         elif cur_task.startswith('ner_'):
-            fredt5_logger.info('F1 by entities is {0:.6f}.'.format(instant_score))
+            info_msg += 'F1 by entities is {0:.6f}.'.format(instant_score)
         elif cur_task.endswith('_detection'):
-            fredt5_logger.info('Yes/No F1 is {0:.6f}.'.format(instant_score))
+            info_msg += 'Yes/No F1 is {0:.6f}.'.format(instant_score)
         else:
-            fredt5_logger.info('ChrF score F1 is {0:.6f}.'.format(instant_score))
+            info_msg += 'ChrF score F1 is {0:.6f}.'.format(instant_score)
+        fredt5_logger.info(info_msg)
 
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
@@ -358,18 +359,19 @@ def main():
             raise
         fredt5_logger.info(f'Epoch {epoch}: united recognition score is {cur_score}.')
         for cur_task in tasks_for_validation:
-            fredt5_logger.info(f'Epoch {epoch}: recognition results for the task {cur_task}:')
+            info_msg = f'Epoch {epoch}: the task {cur_task} '
             instant_score, _ = results_by_tasks[cur_task]
             if cur_task == 'asr_correction':
-                fredt5_logger.info('Epoch {0}: word accuracy is {1:.5%}.'.format(epoch, instant_score))
+                info_msg += 'word accuracy is {1:.5%}.'.format(epoch, instant_score)
             elif cur_task == 'segmentation':
-                fredt5_logger.info('Epoch {0}: paragraph accuracy is {1:.5%}.'.format(epoch, instant_score))
+                info_msg += 'paragraph accuracy is {1:.5%}.'.format(epoch, instant_score)
             elif cur_task.startswith('ner_'):
-                fredt5_logger.info('Epoch {0}: F1 by entities is {1:.6f}.'.format(epoch, instant_score))
+                info_msg += 'F1 by entities is {1:.6f}.'.format(epoch, instant_score)
             elif cur_task.endswith('_detection'):
-                fredt5_logger.info('Epoch {0}: Yes/No F1 is {1:.6f}.'.format(epoch, instant_score))
+                info_msg += 'Yes/No F1 is {1:.6f}.'.format(epoch, instant_score)
             else:
-                fredt5_logger.info('Epoch {0}: ChrF score F1 is {1:.6f}.'.format(epoch, instant_score))
+                info_msg += 'ChrF score F1 is {1:.6f}.'.format(epoch, instant_score)
+            fredt5_logger.info(info_msg)
         if cur_score > best_score:
             best_score = cur_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)
