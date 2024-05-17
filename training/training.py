@@ -350,11 +350,33 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
                 population=other_indices,
                 k=random.randint(1, MIN_SAMPLES_PER_TASK - 1)
             )
-            new_samples.append(create_few_shot_sample(
-                val,
-                [src_short_samples[i] for i in indices_of_examples],
-                True
-            ))
+            if cur_task.startswith('ner_'):
+                samples_for_ner = [src_short_samples[i] for i in indices_of_examples]
+                samples_with_answer = list(filter(
+                    lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') < 0,
+                    samples_for_ner
+                ))
+                samples_with_without_answer = list(filter(
+                    lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') >= 0,
+                    samples_for_ner
+                ))
+                if len(samples_with_answer) > 0:
+                    if len(samples_with_without_answer) > 1:
+                        samples_with_without_answer = random.sample(
+                            population=samples_with_without_answer,
+                            k=1
+                        )
+                    new_samples.append(create_few_shot_sample(
+                        val,
+                        samples_with_answer + samples_with_without_answer,
+                        True
+                    ))
+            else:
+                new_samples.append(create_few_shot_sample(
+                    val,
+                    [src_short_samples[i] for i in indices_of_examples],
+                    True
+                ))
         if len(new_samples) > 0:
             info_msg = f'Task {cur_task}: {len(new_samples)} few-shot samples are added.'
             training_logger.info(info_msg)
@@ -365,30 +387,5 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
             for cur in selected_samples_for_print:
                 training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
             src[cur_task] += new_samples
-        del new_samples
-        new_samples = []
-        for idx, val in enumerate(src_short_samples):
-            other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
-            indices_of_examples = random.sample(
-                population=other_indices,
-                k=random.randint(2, MIN_SAMPLES_PER_TASK - 1)
-            )
-            new_samples.append(create_few_shot_sample(
-                val,
-                [src_short_samples[i] for i in indices_of_examples],
-                False
-            ))
-        if len(new_samples) > 0:
-            info_msg = f'Task unknown: {len(new_samples)} few-shot samples are added.'
-            training_logger.info(info_msg)
-            if len(new_samples) > 2:
-                selected_samples_for_print = random.sample(population=new_samples, k=2)
-            else:
-                selected_samples_for_print = new_samples
-            for cur in selected_samples_for_print:
-                training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
-            if 'unknown' not in src:
-                src['unknown'] = []
-            src['unknown'] += new_samples
         del new_samples, src_short_samples
     return src
