@@ -326,21 +326,23 @@ def main():
         model.train()
         train_loss_val = 0.0
         for _ in trange(n_training_batches):
-            for _ in range(gradient_accumulation):
-                try:
-                    x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
-                        data_for_training_,
-                        tokenizer.pad_token_id,
-                        minibatch_size
-                    )
-                except Exception as err:
-                    fredt5_logger.error(str(err))
-                    raise
+            try:
+                x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
+                    data_for_training_,
+                    tokenizer.pad_token_id,
+                    minibatch_size * gradient_accumulation
+                )
+            except Exception as err:
+                fredt5_logger.error(str(err))
+                raise
+            for batch_idx in range(gradient_accumulation):
+                batch_start = batch_idx * minibatch_size
+                batch_end = batch_start + minibatch_size
                 loss = model(
-                    input_ids=x_input_ids.to(device),
-                    attention_mask=x_attention_mask.to(device),
-                    labels=y_input_ids.to(device),
-                    decoder_attention_mask=y_attention_mask.to(device),
+                    input_ids=x_input_ids[batch_start:batch_end].to(device),
+                    attention_mask=x_attention_mask[batch_start:batch_end].to(device),
+                    labels=y_input_ids[batch_start:batch_end].to(device),
+                    decoder_attention_mask=y_attention_mask[batch_start:batch_end].to(device),
                     return_dict=True
                 ).loss / gradient_accumulation
                 train_loss_val += float(loss.detach().cpu())

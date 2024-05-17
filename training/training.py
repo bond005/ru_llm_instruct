@@ -17,21 +17,52 @@ training_logger = logging.getLogger(__name__)
 def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_id: int,
                  minibatch: int) -> Tuple[torch.LongTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor]:
     tasks = sorted(list(data.keys()))
-    if len(tasks) == minibatch:
-        tasks_for_batch = copy.copy(tasks)
-    elif len(tasks) > minibatch:
-        tasks_for_batch = random.sample(population=tasks, k=minibatch)
+    if 'unknown' in tasks:
+        if len(tasks) == 1:
+            tasks_for_batch = ['unknown']
+        else:
+            if minibatch == 1:
+                task_weights = [1.0 for _ in range(len(tasks))]
+                task_weights[tasks.index('unknown')] = len(tasks) - 1
+                weight_sum = sum(task_weights)
+                for idx in range(len(tasks)):
+                    task_weights[idx] /= weight_sum
+                tasks_for_batch = random.choices(population=tasks, k=1, weights=task_weights)
+                del task_weights
+            else:
+                tasks_for_batch = ['unknown' for _ in range(minibatch // 2)]
+                tasks.remove('unknown')
+                minibatch_ = minibatch - len(tasks_for_batch)
+                if len(tasks) == minibatch_:
+                    tasks_for_batch_ = copy.copy(tasks)
+                elif len(tasks) > minibatch_:
+                    tasks_for_batch_ = random.sample(population=tasks, k=minibatch_)
+                else:
+                    tasks_for_batch_ = copy.copy(tasks)
+                    while (minibatch_ - len(tasks_for_batch_)) >= len(tasks):
+                        tasks_for_batch_ += tasks
+                    if (minibatch_ - len(tasks_for_batch_)) > 0:
+                        tasks_for_batch_ += random.sample(population=tasks, k=minibatch_ - len(tasks_for_batch_))
+                tasks_for_batch += tasks_for_batch_
+                del tasks_for_batch_
     else:
-        tasks_for_batch = copy.copy(tasks)
-        while (minibatch - len(tasks_for_batch)) >= len(tasks):
-            tasks_for_batch += tasks
-        if (minibatch - len(tasks_for_batch)) > 0:
-            tasks_for_batch += random.sample(population=tasks, k=minibatch - len(tasks_for_batch))
+        training_logger.warning(f'The unknown task is not found in the {tasks}.')
+        if len(tasks) == minibatch:
+            tasks_for_batch = copy.copy(tasks)
+        elif len(tasks) > minibatch:
+            tasks_for_batch = random.sample(population=tasks, k=minibatch)
+        else:
+            tasks_for_batch = copy.copy(tasks)
+            while (minibatch - len(tasks_for_batch)) >= len(tasks):
+                tasks_for_batch += tasks
+            if (minibatch - len(tasks_for_batch)) > 0:
+                tasks_for_batch += random.sample(population=tasks, k=minibatch - len(tasks_for_batch))
     if len(tasks_for_batch) != minibatch:
         err_msg = (f'The minibatch size does not equal to the number of selected tasks. '
                    f'{minibatch} != {len(tasks_for_batch)}')
         training_logger.error(err_msg)
         raise RuntimeError(err_msg)
+    random.shuffle(tasks_for_batch)
     input_token_ids = []
     input_attention = []
     target_token_ids = []
