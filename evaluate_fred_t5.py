@@ -11,8 +11,7 @@ import numpy as np
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, GenerationConfig
 import torch
 
-from instructions.instructions import evaluate, load_evaluator
-from training.training import load_trainset
+from instructions.instructions import evaluate
 from utils.utils import process_multiline
 
 
@@ -38,14 +37,10 @@ def main():
                         help='The input name of FRED-T5.')
     parser.add_argument('-o', '--output', dest='output_report_name', type=str, required=True,
                         help='The output name of the JSON report.')
-    parser.add_argument('-i', '--input', dest='data_name', type=str, required=True,
-                        help='The path to the dataset with "train_data.csv" and "test_data.csv".')
+    parser.add_argument('-i', '--input', dest='input_data_name', type=str, required=True,
+                        help='The JSON structured dataset name.')
     parser.add_argument('--batch', dest='batch_size', type=int, required=True,
                         help='The mini-batch size for FRED-T5.')
-    parser.add_argument('--eval_model', dest='eval_model', type=str, required=True,
-                        help='The path to the pre-trained FRED-T5 for using as a BERT score calculator.')
-    parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=True,
-                        help='The mini-batch size for the BERT score calculator.')
     parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
                         help='The maximal number of validation samples per validated task.')
     parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
@@ -68,21 +63,23 @@ def main():
         raise ValueError(err_msg)
     fredt5_logger.info(f'Mini-batch size is {minibatch_size}.')
 
-    dataset_path = os.path.normpath(args.data_name)
-    if not os.path.isdir(dataset_path):
-        err_msg = f'The directory {dataset_path} does not exist!'
+    dataset_fname = os.path.normpath(args.input_data_name)
+    if not os.path.isfile(dataset_fname):
+        err_msg = f'The file {dataset_fname} does not exist!'
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
-    traindata_name = os.path.join(dataset_path, 'train_data.csv')
-    testdata_name = os.path.join(dataset_path, 'test_data.csv')
-    if not os.path.isfile(traindata_name):
-        err_msg = f'The file {traindata_name} does not exist!'
+    with codecs.open(dataset_fname, mode='r', encoding='utf-8', errors='ignore') as fp:
+        data = json.load(fp)
+    if not isinstance(data, dict):
+        err_msg = f'The file "{dataset_fname}" contains a wrong data!'
         fredt5_logger.error(err_msg)
-        raise ValueError(err_msg)
-    if not os.path.isfile(testdata_name):
-        err_msg = f'The file {testdata_name} does not exist!'
+        raise IOError(err_msg)
+    if set(data.keys()) != {'text_corpus', 'validation', 'train'}:
+        err_msg = f'The file "{dataset_fname}" contains a wrong data!'
         fredt5_logger.error(err_msg)
-        raise ValueError(err_msg)
+        raise IOError(err_msg)
+    data_for_validation = data['validation']
+    data_for_training = data['train']
 
     fredt5_name = os.path.normpath(args.model_name)
     if not os.path.isdir(fredt5_name):
@@ -90,21 +87,10 @@ def main():
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
 
-    scorer_path = os.path.normpath(args.eval_model)
-    if not os.path.isdir(scorer_path):
-        err_msg = f'The directory {scorer_path} does not exist!'
-        fredt5_logger.error(err_msg)
-        raise ValueError(err_msg)
-
     united_text_corpus = []
     max_text_len = 0
 
     n_training_samples = 0
-    try:
-        data_for_training = load_trainset(traindata_name, lm_tag=not args.no_lm_tag)
-    except Exception as err:
-        fredt5_logger.error(str(err))
-        raise
     tasks_for_training = sorted(list(data_for_training.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_training)} tasks for training.')
     for cur_task in tasks_for_training:
@@ -123,11 +109,6 @@ def main():
                 max_text_len = len(united_text_corpus[-1])
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
 
-    try:
-        data_for_validation = load_trainset(testdata_name, lm_tag=not args.no_lm_tag)
-    except Exception as err:
-        fredt5_logger.error(str(err))
-        raise
     tasks_for_validation = sorted(list(data_for_validation.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_validation)} tasks for validation.')
     for cur_task in tasks_for_validation:
@@ -151,13 +132,6 @@ def main():
     fredt5_logger.info('There are 5 randomly samples texts:')
     for it in random.sample(united_text_corpus, k=5):
         fredt5_logger.info(it)
-
-    try:
-        scorer = load_evaluator(scorer_path, args.eval_batch_size, united_text_corpus)
-    except Exception as err:
-        fredt5_logger.error(str(err))
-        raise
-    fredt5_logger.info(f'The BERT scorer based on FRED-T5 "{os.path.basename(scorer_path)}" is loaded.')
 
     model = T5ForConditionalGeneration.from_pretrained(fredt5_name).to(device)
     model.eval()
@@ -219,8 +193,7 @@ def main():
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,
-                                                tokenizer, generation_config, model, minibatch_size,
-                                                scorer)
+                                                tokenizer, generation_config, model, minibatch_size)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise

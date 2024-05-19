@@ -16,9 +16,11 @@ import torch
 from instructions.instructions import evaluate
 from training.training import sample_batch
 from training.training import training_logger
+from birm.birm import EBD, calculate_environments
 
 
 fredt5_logger = logging.getLogger(__name__)
+L2_REGULARIZER_WEIGHT: float = 1.0
 
 
 def main():
@@ -58,8 +60,23 @@ def main():
                         help='The maximal number of tokens per input or target for training.')
     parser.add_argument('--test_maxlen', dest='test_maxlen', type=int, required=False, default=None,
                         help='The maximal number of tokens per input or target for testing.')
+    parser.add_argument('--penalty', dest='birm_penalty', type=float, required=False, default=10000.0,
+                        help='The penalty weight for BIRM.')
+    parser.add_argument('--samples', dest='birm_samples', type=int, required=False, default=5,
+                        help='The samples number for BIRM.')
     parser.add_argument('--bf16', dest='bf16', action='store_true', help='Is bfloat16 used?')
     args = parser.parse_args()
+
+    if args.birm_samples < 2:
+        err_msg = f'The samples number for BIRM is wrong! Expected an integer greater than 1, got {args.birm_samples}.'
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
+
+    if args.birm_penalty <= 0.0:
+        err_msg = (f'The penalty weight for BIRM is wrong! Expected a non-negative floating-point, '
+                   f'got {args.birm_penalty}.')
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
 
     finetuned_dir_name = os.path.normpath(args.output_name)
     if (len(finetuned_dir_name) == 0) or (finetuned_dir_name == '.'):
@@ -200,9 +217,32 @@ def main():
     model.eval()
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
+    ebd = EBD(envs_num=4, num_classes=model.config.vocab_size, device=device)
+    loss_fct = torch.nn.CrossEntropyLoss().to(device)
+
+    llm_total_params = sum(p.numel() for p in model.parameters())
+    with torch.no_grad():
+        weight_norm = torch.tensor(0.).to(device)
+        for w in model.parameters():
+            weight_norm += w.norm().pow(2)
+        weight_norm_val = float(weight_norm.detach().cpu())
+    n = 1.0
+    weight_norm_val_ = weight_norm_val
+    while weight_norm_val_ > 1.0:
+        n *= 10.0
+        weight_norm_val_ /= 10.0
+    l2_regularizer_weight = L2_REGULARIZER_WEIGHT / n
+    info_msg = (f'Total number of the FRED-T5\'s weights is {llm_total_params}, '
+                f'the weight norm is {weight_norm_val}, and L2 regularizer weight is {l2_regularizer_weight}.')
+    fredt5_logger.info(info_msg)
+
     tokenizer.save_pretrained(finetuned_dir_name)
-    max_text_len = max([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
+    all_text_lengths = sorted([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
+    max_text_len = all_text_lengths[-1]
+    median_text_len = all_text_lengths[(len(all_text_lengths) - 1) // 2]
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
+    fredt5_logger.info(f'The minimal subwords in the text is {all_text_lengths[0]}.')
+    fredt5_logger.info(f'The median subwords in the text is {median_text_len}.')
 
     if maximal_number_of_tokens_for_testing is None:
         generation_max_length = 3 + round(1.1 * max_text_len)
@@ -327,8 +367,12 @@ def main():
 
     for epoch in range(1, max_epochs + 1):
         fredt5_logger.info(f'Epoch {epoch} is started.')
+        env_freq = dict()
         model.train()
-        train_loss_val = 0.0
+        total_training_loss_val = 0.0
+        training_nll_val = 0.0
+        weight_norm_val = 0.0
+        training_penalty_val = 0.0
         for _ in trange(n_training_batches):
             try:
                 x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
@@ -339,22 +383,82 @@ def main():
             except Exception as err:
                 fredt5_logger.error(str(err))
                 raise
+            try:
+                envs = calculate_environments(x_attention_mask, y_attention_mask, median_text_len)
+            except Exception as err:
+                fredt5_logger.error(str(err))
+                raise
+            for val in envs.numpy().tolist():
+                if val in env_freq:
+                    env_freq[val] += 1
+                else:
+                    env_freq[val] = 1
             for batch_idx in range(gradient_accumulation):
                 batch_start = batch_idx * minibatch_size
                 batch_end = batch_start + minibatch_size
-                loss = model(
+                train_labels = y_input_ids[batch_start:batch_end].to(device)
+                res = model(
                     input_ids=x_input_ids[batch_start:batch_end].to(device),
                     attention_mask=x_attention_mask[batch_start:batch_end].to(device),
                     labels=y_input_ids[batch_start:batch_end].to(device),
                     decoder_attention_mask=y_attention_mask[batch_start:batch_end].to(device),
                     return_dict=True
-                ).loss / gradient_accumulation
-                train_loss_val += float(loss.detach().cpu())
+                )
+                train_nll = res.loss / gradient_accumulation
+                training_nll_val += float(train_nll.detach().cpu())
+                train_penalty = torch.tensor(0.).to(device)
+                for _ in range(args.birm_samples):
+                    ebd.re_init_with_noise(0.1)
+                    env_embeddings = ebd(envs[batch_start:batch_end].to(device))
+                    train_logits_w = env_embeddings * res.logits
+                    train_nll_ = loss_fct(
+                        train_logits_w.view(-1, model.config.vocab_size),
+                        train_labels.reshape(-1)
+                    )
+                    grad = torch.autograd.grad(
+                        train_nll_ * ebd.envs_num,
+                        ebd.parameters(),
+                        create_graph=True
+                    )[0]
+                    train_penalty += (1.0 / args.birm_samples) * torch.mean(grad ** 2)
+                    del train_logits_w, env_embeddings
+                training_penalty_val += float(train_penalty.detach().cpu())
+                weight_norm = torch.tensor(0.).to(device)
+                for w in model.parameters():
+                    weight_norm += w.norm().pow(2)
+                weight_norm_val += float(weight_norm.detach().cpu())
+                loss = train_nll.clone()
+                loss += l2_regularizer_weight * weight_norm
+                loss += args.birm_penalty * train_penalty
+                total_training_loss_val += float(loss.detach().cpu())
                 loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-        train_loss_val /= n_training_batches
-        fredt5_logger.info(f'Epoch {epoch}: training loss = {train_loss_val}.')
+            del envs
+        total_training_loss_val /= float(n_training_batches)
+        training_nll_val /= float(n_training_batches)
+        weight_norm_val /= float(n_training_batches)
+        training_penalty_val /= float(n_training_batches)
+        info_msg = (f'Epoch {epoch}: total training loss is {total_training_loss_val}, '
+                    f'training cross-entropy is {training_nll_val}, training penalty is {training_penalty_val}, '
+                    f'weight norm is {weight_norm_val}.')
+        fredt5_logger.info(info_msg)
+        if len(env_freq) > 1:
+            info_msg = f'Epoch {epoch}: {len(env_freq)} environments are used. They are: '
+            env_keys = sorted(
+                list(env_freq.keys()),
+                key=lambda it: -env_freq[it]
+            )
+            total_sum = env_freq[env_keys[0]]
+            for k in env_keys[1:]:
+                total_sum += env_freq[k]
+            info_msg += f'environment {env_keys[0]} = {round(100.0 * env_freq[env_keys[0]] / total_sum)}%'
+            for k in env_keys[1:]:
+                info_msg += f', environment {k} = {round(100.0 * env_freq[k] / total_sum)}%'
+            info_msg += '.'
+        else:
+            info_msg = f'Epoch {epoch}: only environment {list(env_freq.keys())[0]} is used.'
+        fredt5_logger.info(info_msg)
         model.eval()
         torch.cuda.empty_cache()
         try:
@@ -396,7 +500,7 @@ if __name__ == '__main__':
     stdout_handler.setFormatter(formatter)
     fredt5_logger.addHandler(stdout_handler)
     training_logger.addHandler(stdout_handler)
-    file_handler = logging.FileHandler('fredt5_instruct_training.log')
+    file_handler = logging.FileHandler('birm_fredt5_instruct_training.log')
     file_handler.setFormatter(formatter)
     fredt5_logger.addHandler(file_handler)
     training_logger.addHandler(file_handler)

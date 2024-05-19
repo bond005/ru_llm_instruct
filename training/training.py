@@ -17,21 +17,52 @@ training_logger = logging.getLogger(__name__)
 def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_id: int,
                  minibatch: int) -> Tuple[torch.LongTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor]:
     tasks = sorted(list(data.keys()))
-    if len(tasks) == minibatch:
-        tasks_for_batch = copy.copy(tasks)
-    elif len(tasks) > minibatch:
-        tasks_for_batch = random.sample(population=tasks, k=minibatch)
+    if 'unknown' in tasks:
+        if len(tasks) == 1:
+            tasks_for_batch = ['unknown']
+        else:
+            if minibatch == 1:
+                task_weights = [1.0 for _ in range(len(tasks))]
+                task_weights[tasks.index('unknown')] = len(tasks) - 1
+                weight_sum = sum(task_weights)
+                for idx in range(len(tasks)):
+                    task_weights[idx] /= weight_sum
+                tasks_for_batch = random.choices(population=tasks, k=1, weights=task_weights)
+                del task_weights
+            else:
+                tasks_for_batch = ['unknown' for _ in range(minibatch // 2)]
+                tasks.remove('unknown')
+                minibatch_ = minibatch - len(tasks_for_batch)
+                if len(tasks) == minibatch_:
+                    tasks_for_batch_ = copy.copy(tasks)
+                elif len(tasks) > minibatch_:
+                    tasks_for_batch_ = random.sample(population=tasks, k=minibatch_)
+                else:
+                    tasks_for_batch_ = copy.copy(tasks)
+                    while (minibatch_ - len(tasks_for_batch_)) >= len(tasks):
+                        tasks_for_batch_ += tasks
+                    if (minibatch_ - len(tasks_for_batch_)) > 0:
+                        tasks_for_batch_ += random.sample(population=tasks, k=minibatch_ - len(tasks_for_batch_))
+                tasks_for_batch += tasks_for_batch_
+                del tasks_for_batch_
     else:
-        tasks_for_batch = copy.copy(tasks)
-        while (minibatch - len(tasks_for_batch)) >= len(tasks):
-            tasks_for_batch += tasks
-        if (minibatch - len(tasks_for_batch)) > 0:
-            tasks_for_batch += random.sample(population=tasks, k=minibatch - len(tasks_for_batch))
+        training_logger.warning(f'The unknown task is not found in the {tasks}.')
+        if len(tasks) == minibatch:
+            tasks_for_batch = copy.copy(tasks)
+        elif len(tasks) > minibatch:
+            tasks_for_batch = random.sample(population=tasks, k=minibatch)
+        else:
+            tasks_for_batch = copy.copy(tasks)
+            while (minibatch - len(tasks_for_batch)) >= len(tasks):
+                tasks_for_batch += tasks
+            if (minibatch - len(tasks_for_batch)) > 0:
+                tasks_for_batch += random.sample(population=tasks, k=minibatch - len(tasks_for_batch))
     if len(tasks_for_batch) != minibatch:
         err_msg = (f'The minibatch size does not equal to the number of selected tasks. '
                    f'{minibatch} != {len(tasks_for_batch)}')
         training_logger.error(err_msg)
         raise RuntimeError(err_msg)
+    random.shuffle(tasks_for_batch)
     input_token_ids = []
     input_attention = []
     target_token_ids = []
@@ -319,11 +350,33 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
                 population=other_indices,
                 k=random.randint(1, MIN_SAMPLES_PER_TASK - 1)
             )
-            new_samples.append(create_few_shot_sample(
-                val,
-                [src_short_samples[i] for i in indices_of_examples],
-                True
-            ))
+            if cur_task.startswith('ner_'):
+                samples_for_ner = [src_short_samples[i] for i in indices_of_examples]
+                samples_with_answer = list(filter(
+                    lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') < 0,
+                    samples_for_ner
+                ))
+                samples_with_without_answer = list(filter(
+                    lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') >= 0,
+                    samples_for_ner
+                ))
+                if len(samples_with_answer) > 0:
+                    if len(samples_with_without_answer) > 1:
+                        samples_with_without_answer = random.sample(
+                            population=samples_with_without_answer,
+                            k=1
+                        )
+                    new_samples.append(create_few_shot_sample(
+                        val,
+                        samples_with_answer + samples_with_without_answer,
+                        True
+                    ))
+            else:
+                new_samples.append(create_few_shot_sample(
+                    val,
+                    [src_short_samples[i] for i in indices_of_examples],
+                    True
+                ))
         if len(new_samples) > 0:
             info_msg = f'Task {cur_task}: {len(new_samples)} few-shot samples are added.'
             training_logger.info(info_msg)
@@ -334,30 +387,5 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
             for cur in selected_samples_for_print:
                 training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
             src[cur_task] += new_samples
-        del new_samples
-        new_samples = []
-        for idx, val in enumerate(src_short_samples):
-            other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
-            indices_of_examples = random.sample(
-                population=other_indices,
-                k=random.randint(2, MIN_SAMPLES_PER_TASK - 1)
-            )
-            new_samples.append(create_few_shot_sample(
-                val,
-                [src_short_samples[i] for i in indices_of_examples],
-                False
-            ))
-        if len(new_samples) > 0:
-            info_msg = f'Task unknown: {len(new_samples)} few-shot samples are added.'
-            training_logger.info(info_msg)
-            if len(new_samples) > 2:
-                selected_samples_for_print = random.sample(population=new_samples, k=2)
-            else:
-                selected_samples_for_print = new_samples
-            for cur in selected_samples_for_print:
-                training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
-            if 'unknown' not in src:
-                src['unknown'] = []
-            src['unknown'] += new_samples
         del new_samples, src_short_samples
     return src
