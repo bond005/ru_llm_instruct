@@ -45,6 +45,9 @@ def main():
                         help='The maximal number of validation samples per validated task.')
     parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
                         help='The <LM> tag is not used.')
+    parser.add_argument('--dtype', dest='dtype', required=False, default='float32', type=str,
+                        choices=['float32', 'float16', 'bfloat16', 'bf16', 'fp16', 'fp32'],
+                        help='The PyTorch tensor type for inference.')
     args = parser.parse_args()
 
     report_name = os.path.normpath(args.output_report_name)
@@ -133,7 +136,12 @@ def main():
     for it in random.sample(united_text_corpus, k=5):
         fredt5_logger.info(it)
 
-    model = T5ForConditionalGeneration.from_pretrained(fredt5_name).to(device)
+    if args.dtype in {'float16', 'fp16'}:
+        model = T5ForConditionalGeneration.from_pretrained(fredt5_name, torch_dtype=torch.float16).to(device)
+    elif args.dtype in {'bfloat16', 'bf16'}:
+        model = T5ForConditionalGeneration.from_pretrained(fredt5_name, torch_dtype=torch.bfloat16).to(device)
+    else:
+        model = T5ForConditionalGeneration.from_pretrained(fredt5_name, torch_dtype=torch.float32).to(device)
     model.eval()
     tokenizer = GPT2Tokenizer.from_pretrained(fredt5_name)
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(fredt5_name)}" is loaded.')

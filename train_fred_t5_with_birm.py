@@ -212,13 +212,13 @@ def main():
 
     if args.bf16:
         model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
+        ebd = EBD(envs_num=4, num_classes=model.config.vocab_size, device=device, dtype=torch.bfloat16)
     else:
         model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.float32).to(device)
+        ebd = EBD(envs_num=4, num_classes=model.config.vocab_size, device=device, dtype=torch.float32)
     model.eval()
-    fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
-
-    ebd = EBD(envs_num=4, num_classes=model.config.vocab_size, device=device)
     loss_fct = torch.nn.CrossEntropyLoss().to(device)
+    fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
     llm_total_params = sum(p.numel() for p in model.parameters())
     with torch.no_grad():

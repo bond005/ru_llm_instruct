@@ -11,7 +11,6 @@ from seqeval.metrics import f1_score as ner_f1_score
 from scipy.stats import hmean
 from sklearn.metrics import f1_score
 import spacy
-import torch
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
 

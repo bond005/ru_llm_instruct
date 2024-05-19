@@ -43,7 +43,7 @@ def find_entities_in_text(source_text: str, entities: List[str], entity_class: s
             start_pos = found_token_idx + len(tokens_of_entity)
         else:
             if raise_exception:
-                err_msg = f'The entity {cur_entity} is not found in the text {source_text}'
+                err_msg = f'The entity {cur_entity} from entity list {entities} is not found in the text {source_text}'
                 raise ValueError(err_msg)
     if start_pos < len(tokens_of_text):
         for _ in range(len(tokens_of_text) - start_pos):
