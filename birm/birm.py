@@ -7,12 +7,13 @@ L2_REGULARIZER_WEIGHT: float = 1e-1
 
 
 class EBD(torch.nn.Module):
-    def __init__(self, envs_num: int, num_classes: int, device: Any):
+    def __init__(self, envs_num: int, num_classes: int, device: Any, dtype: torch.dtype):
         super(EBD, self).__init__()
         self.envs_num = envs_num
         self.num_classes = num_classes
         self.device = device
-        self.embeddings = torch.nn.Embedding(self.envs_num, self.num_classes).to(self.device)
+        self.dtype = dtype
+        self.embeddings = torch.nn.Embedding(self.envs_num, self.num_classes, dtype=self.dtype).to(self.device)
         self.re_init()
 
     def re_init(self):
@@ -22,7 +23,7 @@ class EBD(torch.nn.Module):
         rd = torch.normal(
             torch.Tensor([1.0] * self.envs_num * self.num_classes),
             torch.Tensor([noise_sd] * self.envs_num * self.num_classes)
-        )
+        ).to(self.dtype)
         self.embeddings.weight.data = rd.view(-1, self.num_classes).to(self.device)
 
     def forward(self, e: torch.Tensor) -> torch.Tensor:
