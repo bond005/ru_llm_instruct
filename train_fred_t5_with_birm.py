@@ -64,6 +64,7 @@ def main():
                         help='The penalty weight for BIRM.')
     parser.add_argument('--samples', dest='birm_samples', type=int, required=False, default=5,
                         help='The samples number for BIRM.')
+    parser.add_argument('--bf16', dest='bf16', action='store_true', help='Is bfloat16 used?')
     args = parser.parse_args()
 
     if args.birm_samples < 2:
@@ -209,7 +210,10 @@ def main():
                 raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
-    model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.float32).to(device)
+    if args.bf16:
+        model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
+    else:
+        model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.float32).to(device)
     model.eval()
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 

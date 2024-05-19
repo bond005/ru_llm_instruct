@@ -58,6 +58,7 @@ def main():
                         help='The maximal number of tokens per input or target for training.')
     parser.add_argument('--test_maxlen', dest='test_maxlen', type=int, required=False, default=None,
                         help='The maximal number of tokens per input or target for testing.')
+    parser.add_argument('--bf16', dest='bf16', action='store_true', help='Is bfloat16 used?')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -192,7 +193,10 @@ def main():
                 raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
-    model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.float32).to(device)
+    if args.bf16:
+        model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.bfloat16).to(device)
+    else:
+        model = T5ForConditionalGeneration.from_pretrained(pretrained_dir_name, torch_dtype=torch.float32).to(device)
     model.eval()
     fredt5_logger.info(f'The pre-trained model "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
