@@ -1,7 +1,7 @@
 import codecs
 from typing import List, Tuple
 
-from nltk import wordpunct_tokenize
+from utils.utils import tokenize_text
 
 
 def load_samples_from_taiga(fname: str) -> List[Tuple[str, str]]:
@@ -12,7 +12,7 @@ def load_samples_from_taiga(fname: str) -> List[Tuple[str, str]]:
         while len(curline) > 0:
             prepline = ' '.join((curline.strip().replace('--', '—').split()))
             if len(prepline) > 0:
-                words_in_line = list(filter(lambda it: it.isalpha(), wordpunct_tokenize(prepline)))
+                words_in_line = list(filter(lambda it: it.isalpha(), tokenize_text(prepline)))
                 if len(words_in_line) < 1:
                     if len(new_paragraph) > 0:
                         paragraphs.append(' '.join(new_paragraph.split()))
@@ -48,7 +48,7 @@ def load_samples_from_taiga(fname: str) -> List[Tuple[str, str]]:
     texts = []
     new_text = ''
     for cur_paragraph in paragraphs:
-        words_in_paragraph = list(filter(lambda it: it.isalpha(), wordpunct_tokenize(cur_paragraph)))
+        words_in_paragraph = list(filter(lambda it: it.isalpha(), tokenize_text(cur_paragraph)))
         if len(words_in_paragraph) < 1:
             if len(new_text) > 0:
                 texts.append(new_text.strip())

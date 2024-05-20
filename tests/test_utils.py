@@ -3,10 +3,10 @@ import sys
 import unittest
 
 try:
-    from utils.utils import levenshtein, process_multiline, process_target
+    from utils.utils import levenshtein, process_multiline, process_target, tokenize_text
 except:
     sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-    from utils.utils import levenshtein, process_multiline, process_target
+    from utils.utils import levenshtein, process_multiline, process_target, tokenize_text
 
 
 class TestUtils(unittest.TestCase):
@@ -75,6 +75,28 @@ class TestUtils(unittest.TestCase):
     def test_process_target_neg01(self):
         s = ''
         self.assertEqual(process_target(s), '')
+
+    def test_tokenize_pos01(self):
+        s = 'Тем временем, сообщает «Новый Регион — Екатеринбург», 1 февраля 2001 года.'
+        true_words = ['Тем', 'временем', ',', 'сообщает', '«', 'Новый', 'Регион', '—', 'Екатеринбург', '»', ',',
+                      '1', 'февраля', '2001', 'года', '.']
+        predicted = tokenize_text(s)
+        self.assertIsInstance(predicted, list)
+        for idx, val in enumerate(predicted):
+            self.assertIsInstance(val, str, msg=f'The {idx} word {val} has a wrong type!')
+        self.assertEqual(len(predicted), len(true_words), msg=f'{predicted}')
+        self.assertEqual(predicted, true_words, msg=f'{predicted}')
+
+    def test_tokenize_pos02(self):
+        s = 'A. I. Galushkin graduated from the Bauman Moscow Higher Technical School in 1963.'
+        true_words = ['A', '.', 'I', '.', 'Galushkin', 'graduated', 'from', 'the', 'Bauman', 'Moscow', 'Higher',
+                      'Technical', 'School', 'in', '1963', '.']
+        predicted = tokenize_text(s)
+        self.assertIsInstance(predicted, list)
+        for idx, val in enumerate(predicted):
+            self.assertIsInstance(val, str, msg=f'The {idx} word {val} has a wrong type!')
+        self.assertEqual(len(predicted), len(true_words))
+        self.assertEqual(predicted, true_words)
 
 
 if __name__ == '__main__':

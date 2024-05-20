@@ -30,6 +30,13 @@ class TestInstructions(unittest.TestCase):
         true_task_id = -1
         self.assertEqual(true_task_id, get_task_type(src, False))
 
+    def test_get_task_type_pos04(self):
+        src = ('<LM>Будьте добры, выявите все упоминания о локациях в представленном тексте и составьте их список. '
+               'Президент США Барак Обама в пятницу , 19 июня , назвал кандидатов '
+               'на посты послов в Грузии и Таджикистане , сообщила пресс - служба Белого дома .')
+        true_task_id = 6
+        self.assertEqual(true_task_id, get_task_type(src, True))
+
     def test_get_task_type_neg01(self):
         src = ('Президент США Барак Обама. Найди, пожалуйста, все именованные сущности типа "Местоположение" в '
                'следующем тексте и выпиши список таких сущностей. Президент США Барак Обама в пятницу , 19 июня , '

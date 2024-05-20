@@ -1,7 +1,19 @@
 from typing import List, Tuple, Union
 
+from nltk import wordpunct_tokenize
 import numpy as np
 from spacy import Language
+
+
+def tokenize_text(s: str) -> List[str]:
+    words_ = wordpunct_tokenize(s)
+    words = []
+    for cur in words_:
+        if cur.isalnum():
+            words.append(cur)
+        else:
+            words += list(cur)
+    return words
 
 
 def levenshtein(seq1: List[str], seq2: List[str]) -> float:
