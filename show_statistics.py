@@ -4,6 +4,7 @@ import json
 import os
 import random
 
+import matplotlib.pyplot as plt
 import numpy as np
 from transformers import GPT2Tokenizer
 
@@ -26,10 +27,17 @@ def main():
                         help='The data split (train or validation).')
     parser.add_argument('--type', dest='type', choices=['input', 'target'], required=True,
                         help='The sample type (input or target).')
-    parser.add_argument('--task', dest='task', type=str, required=True, help='The task type.')
+    parser.add_argument('--task', dest='task', type=str, required=False, default=None,
+                        help='The task type.')
     parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
                         help='The <LM> tag is not used.')
+    parser.add_argument('-b', '--bins', dest='bins', type=int, required=False, default=10,
+                        help='The histogram bins number.')
     args = parser.parse_args()
+
+    if args.bins < 2:
+        err_msg = f'The histogram bins number is too small! Expected 2 or greater, got {args.bins}.'
+        raise ValueError(err_msg)
 
     model_path = os.path.normpath(args.model_name)
     if not os.path.isdir(model_path):
@@ -79,33 +87,53 @@ def main():
     for cur_task in tasks_for_validation:
         print(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
-    if args.task not in tasks_for_training:
-        raise ValueError(f'The task {args.task} is unknown!')
+    if args.task is None:
+        task_list = tasks_for_training
+    else:
+        if args.task not in tasks_for_training:
+            raise ValueError(f'The task {args.task} is unknown!')
+        task_list = [args.task]
 
     texts_for_analysis = []
     if args.split == 'train':
-        for sample in data_for_training[args.task]:
-            if args.type == 'input':
-                if args.no_lm_tag:
-                    new_text = sample[0]
+        for cur_task in task_list:
+            for sample in data_for_training[cur_task]:
+                if args.type == 'input':
+                    if args.no_lm_tag:
+                        new_text = sample[0]
+                    else:
+                        new_text = sample[0][4:]
                 else:
-                    new_text = sample[0][4:]
-            else:
-                new_text = sample[1][:-4]
-            texts_for_analysis.append(new_text)
+                    new_text = sample[1][:-4]
+                texts_for_analysis.append(new_text)
     else:
-        for sample in data_for_validation[args.task]:
-            if args.type == 'input':
-                if args.no_lm_tag:
-                    new_text = sample[0]
+        for cur_task in task_list:
+            for sample in data_for_validation[cur_task]:
+                if args.type == 'input':
+                    if args.no_lm_tag:
+                        new_text = sample[0]
+                    else:
+                        new_text = sample[0][4:]
                 else:
-                    new_text = sample[0][4:]
-            else:
-                new_text = sample[1][:-4]
-            texts_for_analysis.append(new_text)
+                    new_text = sample[1][:-4]
+                texts_for_analysis.append(new_text)
     print(f'There are {len(texts_for_analysis)} texts for analysis.')
 
-    pass
+    text_lengths = sorted([len(tokenizer.tokenize(it)) for it in texts_for_analysis])
+    print('')
+    print(f'Minimal tokens number is {text_lengths[0]}.')
+    print(f'Maximal tokens number is {text_lengths[-1]}.')
+    print(f'Mean tokens number is {round(sum(text_lengths) / len(text_lengths))}.')
+    print(f'Median tokens number is {text_lengths[(len(text_lengths) - 1) // 2]}.')
+
+    fig = plt.figure(figsize=(12, 12))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.hist(x=text_lengths, color='blue', edgecolor='black',
+            bins=max(args.bins, (text_lengths[-1] - text_lengths[0]) // 20))
+    ax.set_title('Histogram of sequence length')
+    ax.set_xlabel('Sequence length')
+    ax.set_ylabel('Text frequency')
+    fig.savefig(fname=output_image_fname, format='png')
 
 
 if __name__ == '__main__':

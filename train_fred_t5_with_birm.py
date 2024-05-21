@@ -190,9 +190,11 @@ def main():
     all_text_lengths = sorted([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
     max_text_len = all_text_lengths[-1]
     median_text_len = all_text_lengths[(len(all_text_lengths) - 1) // 2]
+    mean_text_len = round(sum(all_text_lengths) / len(all_text_lengths))
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
     fredt5_logger.info(f'The minimal subwords in the text is {all_text_lengths[0]}.')
     fredt5_logger.info(f'The median subwords in the text is {median_text_len}.')
+    fredt5_logger.info(f'The mean subwords in the text is {mean_text_len}.')
 
     generation_max_length = 3 + round(1.1 * max_text_len)
     generation_config = GenerationConfig(
@@ -282,7 +284,7 @@ def main():
                 fredt5_logger.error(str(err))
                 raise
             try:
-                envs = calculate_environments(x_attention_mask, y_attention_mask, median_text_len)
+                envs = calculate_environments(x_attention_mask, y_attention_mask, mean_text_len)
             except Exception as err:
                 fredt5_logger.error(str(err))
                 raise
