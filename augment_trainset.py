@@ -4,11 +4,40 @@ import copy
 import json
 import os
 import random
+from typing import List, Set, Union
 
 from augmentex.char import CharAug
 import numpy as np
 
 from instructions.instructions import get_task_type, KNOWN_TASKS, TASK_SYNONYMS
+
+
+def augment_text(input_text: str, augmentators: List[CharAug], use_lm_tag: bool,
+                 existed_texts: Set[str]) -> Union[str, None]:
+    selected_augmentator = random.choice(augmentators)
+    if get_task_type(input_text, use_lm_tag) == 'asr_correction':
+        found_idx = input_text.find('.')
+        if found_idx < 0:
+            raise RuntimeError(f'The text in incorrect instruction for ASR correction! {input_text}')
+        prompt = input_text[0:(found_idx + 1)]
+        data = input_text[(found_idx) + 1]
+        if (len(prompt) == 0) or (len(data) == 0):
+            raise RuntimeError(f'The text in incorrect instruction for ASR correction! {input_text}')
+        if use_lm_tag:
+            new_input_text = selected_augmentator.augment(prompt[4:])
+        else:
+            new_input_text = selected_augmentator.augment(prompt)
+        new_input_text += data
+    else:
+        if use_lm_tag:
+            new_input_text = selected_augmentator.augment(input_text[4:])
+        else:
+            new_input_text = selected_augmentator.augment(input_text)
+    if new_input_text in existed_texts:
+        return None
+    if use_lm_tag:
+        new_input_text = '<LM>' + new_input_text
+    return new_input_text
 
 
 def main():
@@ -102,40 +131,17 @@ def main():
         random.shuffle(task_samples)
         task_samples_ = copy.copy(task_samples)
         for sample in task_samples:
-            if random.random() > 0.5:
+            new_input_text = augment_text(sample[0], [char_aug_pc, char_aug_mobile],
+                                          not args.no_lm_tag, set_of_inputs)
+            if new_input_text is not None:
+                task_samples_.append([
+                    new_input_text,
+                    sample[1]
+                ])
                 if args.no_lm_tag:
-                    new_input_text = char_aug_pc.augment(sample[0])
-                else:
-                    new_input_text = char_aug_pc.augment(sample[0][4:])
-                if new_input_text not in set_of_inputs:
-                    if args.no_lm_tag:
-                        task_samples_.append([
-                            new_input_text,
-                            sample[1]
-                        ])
-                    else:
-                        task_samples_.append([
-                            '<LM>' + new_input_text,
-                            sample[1]
-                        ])
                     set_of_inputs.add(new_input_text)
-            else:
-                if args.no_lm_tag:
-                    new_input_text = char_aug_mobile.augment(sample[0])
                 else:
-                    new_input_text = char_aug_mobile.augment(sample[0][4:])
-                if new_input_text not in set_of_inputs:
-                    if args.no_lm_tag:
-                        task_samples_.append([
-                            new_input_text,
-                            sample[1]
-                        ])
-                    else:
-                        task_samples_.append([
-                            '<LM>' + new_input_text,
-                            sample[1]
-                        ])
-                    set_of_inputs.add(new_input_text)
+                    set_of_inputs.add(new_input_text[4:])
         del task_samples, data_for_training[cur_task], set_of_inputs
         random.shuffle(task_samples_)
         data_for_training[cur_task] = task_samples_
