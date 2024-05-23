@@ -304,7 +304,7 @@ def main():
                     decoder_attention_mask=y_attention_mask[batch_start:batch_end].to(device),
                     return_dict=True
                 )
-                train_nll = res.loss / gradient_accumulation
+                train_nll = res.loss
                 training_nll_val += float(train_nll.detach().cpu())
                 if args.bf16:
                     train_penalty = torch.tensor(0.).to(device).bfloat16()
@@ -325,6 +325,7 @@ def main():
                     )[0]
                     train_penalty += (1.0 / args.birm_samples) * torch.mean(grad ** 2)
                     del train_logits_w, env_embeddings
+                train_penalty *= args.birm_penalty
                 training_penalty_val += float(train_penalty.detach().cpu())
                 if args.bf16:
                     weight_norm = torch.tensor(0.).to(device).bfloat16()
@@ -332,22 +333,24 @@ def main():
                     weight_norm = torch.tensor(0.).to(device)
                 for w in model.parameters():
                     weight_norm += w.norm().pow(2)
+                weight_norm *= l2_regularizer_weight
                 weight_norm_val += float(weight_norm.detach().cpu())
                 loss = train_nll.clone()
-                loss += l2_regularizer_weight * weight_norm
-                loss += args.birm_penalty * train_penalty
+                loss += weight_norm
+                loss += train_penalty
+                loss /= gradient_accumulation
                 total_training_loss_val += float(loss.detach().cpu())
                 loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             del envs
         total_training_loss_val /= float(n_training_batches)
-        training_nll_val /= float(n_training_batches)
-        weight_norm_val /= float(n_training_batches)
-        training_penalty_val /= float(n_training_batches)
+        training_nll_val /= float(n_training_batches * gradient_accumulation)
+        weight_norm_val /= float(n_training_batches * gradient_accumulation)
+        training_penalty_val /= float(n_training_batches * gradient_accumulation)
         info_msg = (f'Epoch {epoch}: total training loss is {total_training_loss_val}, '
-                    f'training cross-entropy is {training_nll_val}, training penalty is {training_penalty_val}, '
-                    f'weight norm is {weight_norm_val}.')
+                    f'training cross-entropy is {training_nll_val}, invariance penalty is {training_penalty_val}, '
+                    f'weight norm penalty is {weight_norm_val}.')
         fredt5_logger.info(info_msg)
         if len(env_freq) > 1:
             info_msg = f'Epoch {epoch}: {len(env_freq)} environments are used. They are: '
