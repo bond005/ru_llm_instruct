@@ -284,7 +284,7 @@ def main():
                 fredt5_logger.error(str(err))
                 raise
             try:
-                envs = calculate_environments(x_attention_mask, y_attention_mask, mean_text_len)
+                envs = calculate_environments(x_attention_mask, y_attention_mask, median_text_len)
             except Exception as err:
                 fredt5_logger.error(str(err))
                 raise
@@ -306,7 +306,10 @@ def main():
                 )
                 train_nll = res.loss / gradient_accumulation
                 training_nll_val += float(train_nll.detach().cpu())
-                train_penalty = torch.tensor(0.).to(device)
+                if args.bf16:
+                    train_penalty = torch.tensor(0.).to(device).bfloat16()
+                else:
+                    train_penalty = torch.tensor(0.).to(device)
                 for _ in range(args.birm_samples):
                     ebd.re_init_with_noise(0.1)
                     env_embeddings = ebd(envs[batch_start:batch_end].to(device))
@@ -323,7 +326,10 @@ def main():
                     train_penalty += (1.0 / args.birm_samples) * torch.mean(grad ** 2)
                     del train_logits_w, env_embeddings
                 training_penalty_val += float(train_penalty.detach().cpu())
-                weight_norm = torch.tensor(0.).to(device)
+                if args.bf16:
+                    weight_norm = torch.tensor(0.).to(device).bfloat16()
+                else:
+                    weight_norm = torch.tensor(0.).to(device)
                 for w in model.parameters():
                     weight_norm += w.norm().pow(2)
                 weight_norm_val += float(weight_norm.detach().cpu())
