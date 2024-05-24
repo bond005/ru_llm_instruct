@@ -289,7 +289,8 @@ def main():
                 x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
                     data_for_training,
                     tokenizer.pad_token_id,
-                    minibatch_size * gradient_accumulation
+                    minibatch_size * gradient_accumulation,
+                    warn=False
                 )
             except Exception as err:
                 fredt5_logger.error(str(err))
