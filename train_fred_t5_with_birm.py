@@ -232,7 +232,7 @@ def main():
     del data_for_training
     fredt5_logger.info(f'All training texts are tokenized.')
 
-    data_for_training = split_by_environments(data_for_training_, median_text_len)
+    data_for_training = split_by_environments(data_for_training_, mean_text_len)
     del data_for_training_
     info_msg = ''
     for env in sorted(list(data_for_training.keys())):
@@ -295,7 +295,7 @@ def main():
                 fredt5_logger.error(str(err))
                 raise
             try:
-                envs = calculate_environments(x_attention_mask, y_attention_mask, median_text_len)
+                envs = calculate_environments(x_attention_mask, y_attention_mask, mean_text_len)
             except Exception as err:
                 fredt5_logger.error(str(err))
                 raise
