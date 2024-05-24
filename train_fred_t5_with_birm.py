@@ -16,7 +16,7 @@ import torch
 from instructions.instructions import evaluate
 from training.training import sample_batch
 from training.training import training_logger
-from birm.birm import EBD, calculate_environments
+from birm.birm import EBD, calculate_environments, split_by_environments
 
 
 fredt5_logger = logging.getLogger(__name__)
@@ -232,6 +232,17 @@ def main():
     del data_for_training
     fredt5_logger.info(f'All training texts are tokenized.')
 
+    data_for_training = split_by_environments(data_for_training_, median_text_len)
+    del data_for_training_
+    info_msg = ''
+    for env in sorted(list(data_for_training.keys())):
+        info_msg += f' environment {env}: {len(data_for_training[env])} samples,'
+    info_msg = info_msg.strip()
+    if info_msg.endswith(','):
+        info_msg = info_msg[:-1] + '.'
+    info_msg = info_msg[0].upper() + info_msg[1:]
+    fredt5_logger.info(info_msg)
+
     n_training_batches = int(np.ceil(n_training_samples / (minibatch_size * gradient_accumulation)))
     if args.trainsize is not None:
         if args.trainsize < 100:
@@ -276,7 +287,7 @@ def main():
         for _ in trange(n_training_batches):
             try:
                 x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
-                    data_for_training_,
+                    data_for_training,
                     tokenizer.pad_token_id,
                     minibatch_size * gradient_accumulation
                 )
