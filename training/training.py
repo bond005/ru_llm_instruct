@@ -14,8 +14,8 @@ from instructions.instructions import KNOWN_TASKS, get_task_type
 training_logger = logging.getLogger(__name__)
 
 
-def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_id: int,
-                 minibatch: int) -> Tuple[torch.LongTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor]:
+def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_id: int, minibatch: int,
+                 warn: bool = True) -> Tuple[torch.LongTensor, torch.LongTensor, torch.LongTensor, torch.LongTensor]:
     tasks = sorted(list(data.keys()))
     if 'unknown' in tasks:
         if len(tasks) == 1:
@@ -46,7 +46,8 @@ def sample_batch(data: Dict[str, List[Tuple[List[int], List[int]]]], pad_token_i
                 tasks_for_batch += tasks_for_batch_
                 del tasks_for_batch_
     else:
-        training_logger.warning(f'The unknown task is not found in the {tasks}.')
+        if warn:
+            training_logger.warning(f'The unknown task is not found in the {tasks}.')
         if len(tasks) == minibatch:
             tasks_for_batch = copy.copy(tasks)
         elif len(tasks) > minibatch:
