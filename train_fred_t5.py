@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 import codecs
 import json
 import logging
-import math
 import os
 import random
 import sys
@@ -52,12 +51,6 @@ def main():
                         help='The learning rate.')
     parser.add_argument('--trainsize', dest='trainsize', type=int, required=False, default=None,
                         help='The samples per training epoch.')
-    parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
-                        help='The maximal number of validation samples per validated task.')
-    parser.add_argument('--train_maxlen', dest='train_maxlen', type=int, required=False, default=None,
-                        help='The maximal number of tokens per input or target for training.')
-    parser.add_argument('--test_maxlen', dest='test_maxlen', type=int, required=False, default=None,
-                        help='The maximal number of tokens per input or target for testing.')
     parser.add_argument('--bf16', dest='bf16', action='store_true', help='Is bfloat16 used?')
     args = parser.parse_args()
 
@@ -102,26 +95,6 @@ def main():
         if gradient_accumulation > 1:
             fredt5_logger.info(f'Gradient accumulation step size is {gradient_accumulation}.')
 
-    if args.train_maxlen is None:
-        maximal_number_of_tokens_for_training = None
-    else:
-        maximal_number_of_tokens_for_training = args.train_maxlen
-        if maximal_number_of_tokens_for_training < 10:
-            err_msg = (f'The maximal number of tokens per input or target is too small! Expected 10 or greater, '
-                       f'got {maximal_number_of_tokens_for_training}.')
-            fredt5_logger.error(err_msg)
-            raise ValueError(err_msg)
-
-    if args.test_maxlen is None:
-        maximal_number_of_tokens_for_testing = None
-    else:
-        maximal_number_of_tokens_for_testing = args.test_maxlen
-        if maximal_number_of_tokens_for_testing < 10:
-            err_msg = (f'The maximal number of tokens per input or target is too small! Expected 10 or greater, '
-                       f'got {maximal_number_of_tokens_for_testing}.')
-            fredt5_logger.error(err_msg)
-            raise ValueError(err_msg)
-
     dataset_fname = os.path.normpath(args.data_name)
     if not os.path.isfile(dataset_fname):
         err_msg = f'The file {dataset_fname} does not exist!'
@@ -155,18 +128,6 @@ def main():
     tasks_for_training = sorted(list(data_for_training.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_training)} tasks for training.')
     for cur_task in tasks_for_training:
-        if maximal_number_of_tokens_for_training is not None:
-            data_for_training[cur_task] = list(filter(
-                lambda sample: (len(tokenizer.tokenize(sample[0])) <= maximal_number_of_tokens_for_training) and
-                               (len(tokenizer.tokenize(sample[1])) <= maximal_number_of_tokens_for_training),
-                data_for_training[cur_task]
-            ))
-            if len(data_for_training[cur_task]) == 0:
-                err_msg = (f'The maximal number of tokens per input or target = {maximal_number_of_tokens_for_training}'
-                           f' is too strict! There are no samples of task {cur_task} in the training data '
-                           f'after filtering.')
-                fredt5_logger.error(err_msg)
-                raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_training[cur_task])} training samples for task {cur_task}.')
         n_training_samples += len(data_for_training[cur_task])
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
@@ -179,18 +140,6 @@ def main():
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
     for cur_task in tasks_for_validation:
-        if maximal_number_of_tokens_for_testing is not None:
-            data_for_validation[cur_task] = list(filter(
-                lambda sample: (len(tokenizer.tokenize(sample[0])) <= maximal_number_of_tokens_for_testing) and
-                               (len(tokenizer.tokenize(sample[1])) <= maximal_number_of_tokens_for_testing),
-                data_for_validation[cur_task]
-            ))
-            if len(data_for_validation[cur_task]) == 0:
-                err_msg = (f'The maximal number of tokens per input or target = {maximal_number_of_tokens_for_testing} '
-                           f'is too strict! There are no samples of task {cur_task} in the validation data '
-                           f'after filtering.')
-                fredt5_logger.error(err_msg)
-                raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
     if args.bf16:
@@ -204,10 +153,7 @@ def main():
     max_text_len = max([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
 
-    if maximal_number_of_tokens_for_testing is None:
-        generation_max_length = 3 + round(1.1 * max_text_len)
-    else:
-        generation_max_length = 3 + round(1.1 * maximal_number_of_tokens_for_testing)
+    generation_max_length = 3 + round(1.1 * max_text_len)
     generation_config = GenerationConfig(
         top_k=10,
         penalty_alpha=0.6,
@@ -253,55 +199,6 @@ def main():
             n_training_batches = max(10, int(np.ceil(args.trainsize / (minibatch_size * gradient_accumulation))))
             max_epochs = round(max_epochs * (n_training_samples / args.trainsize))
     fredt5_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
-
-    if args.testsize is not None:
-        if args.testsize < 6:
-            err_msg = (f'The maximal number of validation samples per validated task is too small! '
-                       f'Expected 6 or greater, got {args.testsize}.')
-            fredt5_logger.error(err_msg)
-            raise ValueError(err_msg)
-        for task in tasks_for_validation:
-            if task.startswith('ner_'):
-                samples_with_ne = list(filter(
-                    lambda it: it[1].find('нет именованных сущностей такого типа') < 0,
-                    data_for_validation[task]
-                ))
-                samples_without_ne = list(filter(
-                    lambda it: it[1].find('нет именованных сущностей такого типа') >= 0,
-                    data_for_validation[task]
-                ))
-                if (len(samples_with_ne) + len(samples_without_ne)) != len(data_for_validation[task]):
-                    err_msg = f'The data for task {task} is incorrect!'
-                    fredt5_logger.error(err_msg)
-                    raise ValueError(err_msg)
-                if len(samples_with_ne) == 0:
-                    err_msg = f'The data for task {task} is incorrect!'
-                    fredt5_logger.error(err_msg)
-                    raise ValueError(err_msg)
-                if len(samples_without_ne) == 0:
-                    err_msg = f'The data for task {task} is incorrect!'
-                    fredt5_logger.error(err_msg)
-                    raise ValueError(err_msg)
-                if len(data_for_validation[task]) > args.testsize:
-                    if len(samples_with_ne) > math.ceil(args.testsize / 2):
-                        samples_for_ner = random.sample(samples_with_ne, k=math.ceil(args.testsize / 2))
-                    else:
-                        samples_for_ner = samples_with_ne
-                    if len(samples_without_ne) > (args.testsize - len(samples_for_ner)):
-                        samples_for_ner += random.sample(samples_without_ne, k=args.testsize - len(samples_for_ner))
-                    else:
-                        samples_for_ner += samples_without_ne
-                    del data_for_validation[task]
-                    data_for_validation[task] = samples_for_ner
-                    del samples_for_ner
-                del samples_with_ne, samples_without_ne
-            else:
-                if len(data_for_validation[task]) > args.testsize:
-                    data_for_validation[task] = random.sample(data_for_validation[task], k=args.testsize)
-
-        for task in tasks_for_validation:
-            info_msg = f'There are {len(data_for_validation[task])} test samples for task {task} after reducing.'
-            fredt5_logger.info(info_msg)
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,

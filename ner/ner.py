@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from nltk import wordpunct_tokenize
+from utils.utils import tokenize_text
 
 
 def find_subphrase(full_phrase: List[str], subphrase: List[str]) -> int:
@@ -22,14 +22,14 @@ def find_subphrase(full_phrase: List[str], subphrase: List[str]) -> int:
 
 def find_entities_in_text(source_text: str, entities: List[str], entity_class: str,
                           raise_exception: bool = False) -> List[Tuple[str, str]]:
-    tokens_of_text = wordpunct_tokenize(source_text)
+    tokens_of_text = tokenize_text(source_text)
     start_pos = 0
     entity_labels = []
     for cur_entity in entities:
         postprocessed_entity = cur_entity.strip()
         while postprocessed_entity.endswith('</s>'):
             postprocessed_entity = postprocessed_entity[:-4].strip()
-        tokens_of_entity = wordpunct_tokenize(postprocessed_entity)
+        tokens_of_entity = tokenize_text(postprocessed_entity)
         found_token_idx = find_subphrase(tokens_of_text[start_pos:], tokens_of_entity)
         if found_token_idx >= 0:
             found_token_idx += start_pos

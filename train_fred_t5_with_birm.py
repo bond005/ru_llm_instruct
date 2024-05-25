@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 import codecs
 import json
 import logging
-import math
 import os
 import random
 import sys
@@ -16,7 +15,7 @@ import torch
 from instructions.instructions import evaluate
 from training.training import sample_batch
 from training.training import training_logger
-from birm.birm import EBD, calculate_environments
+from birm.birm import EBD, calculate_environments, split_by_environments
 
 
 fredt5_logger = logging.getLogger(__name__)
@@ -54,12 +53,6 @@ def main():
                         help='The learning rate.')
     parser.add_argument('--trainsize', dest='trainsize', type=int, required=False, default=None,
                         help='The samples per training epoch.')
-    parser.add_argument('--testsize', dest='testsize', type=int, required=False, default=None,
-                        help='The maximal number of validation samples per validated task.')
-    parser.add_argument('--train_maxlen', dest='train_maxlen', type=int, required=False, default=None,
-                        help='The maximal number of tokens per input or target for training.')
-    parser.add_argument('--test_maxlen', dest='test_maxlen', type=int, required=False, default=None,
-                        help='The maximal number of tokens per input or target for testing.')
     parser.add_argument('--penalty', dest='birm_penalty', type=float, required=False, default=10000.0,
                         help='The penalty weight for BIRM.')
     parser.add_argument('--samples', dest='birm_samples', type=int, required=False, default=5,
@@ -119,26 +112,6 @@ def main():
         if gradient_accumulation > 1:
             fredt5_logger.info(f'Gradient accumulation step size is {gradient_accumulation}.')
 
-    if args.train_maxlen is None:
-        maximal_number_of_tokens_for_training = None
-    else:
-        maximal_number_of_tokens_for_training = args.train_maxlen
-        if maximal_number_of_tokens_for_training < 10:
-            err_msg = (f'The maximal number of tokens per input or target is too small! Expected 10 or greater, '
-                       f'got {maximal_number_of_tokens_for_training}.')
-            fredt5_logger.error(err_msg)
-            raise ValueError(err_msg)
-
-    if args.test_maxlen is None:
-        maximal_number_of_tokens_for_testing = None
-    else:
-        maximal_number_of_tokens_for_testing = args.test_maxlen
-        if maximal_number_of_tokens_for_testing < 10:
-            err_msg = (f'The maximal number of tokens per input or target is too small! Expected 10 or greater, '
-                       f'got {maximal_number_of_tokens_for_testing}.')
-            fredt5_logger.error(err_msg)
-            raise ValueError(err_msg)
-
     dataset_fname = os.path.normpath(args.data_name)
     if not os.path.isfile(dataset_fname):
         err_msg = f'The file {dataset_fname} does not exist!'
@@ -172,18 +145,6 @@ def main():
     tasks_for_training = sorted(list(data_for_training.keys()))
     fredt5_logger.info(f'There are {len(tasks_for_training)} tasks for training.')
     for cur_task in tasks_for_training:
-        if maximal_number_of_tokens_for_training is not None:
-            data_for_training[cur_task] = list(filter(
-                lambda sample: (len(tokenizer.tokenize(sample[0])) <= maximal_number_of_tokens_for_training) and
-                               (len(tokenizer.tokenize(sample[1])) <= maximal_number_of_tokens_for_training),
-                data_for_training[cur_task]
-            ))
-            if len(data_for_training[cur_task]) == 0:
-                err_msg = (f'The maximal number of tokens per input or target = {maximal_number_of_tokens_for_training}'
-                           f' is too strict! There are no samples of task {cur_task} in the training data '
-                           f'after filtering.')
-                fredt5_logger.error(err_msg)
-                raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_training[cur_task])} training samples for task {cur_task}.')
         n_training_samples += len(data_for_training[cur_task])
     fredt5_logger.info(f'The total number of training samples is {n_training_samples}.')
@@ -196,18 +157,6 @@ def main():
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
     for cur_task in tasks_for_validation:
-        if maximal_number_of_tokens_for_testing is not None:
-            data_for_validation[cur_task] = list(filter(
-                lambda sample: (len(tokenizer.tokenize(sample[0])) <= maximal_number_of_tokens_for_testing) and
-                               (len(tokenizer.tokenize(sample[1])) <= maximal_number_of_tokens_for_testing),
-                data_for_validation[cur_task]
-            ))
-            if len(data_for_validation[cur_task]) == 0:
-                err_msg = (f'The maximal number of tokens per input or target = {maximal_number_of_tokens_for_testing} '
-                           f'is too strict! There are no samples of task {cur_task} in the validation data '
-                           f'after filtering.')
-                fredt5_logger.error(err_msg)
-                raise ValueError(err_msg)
         fredt5_logger.info(f'There are {len(data_for_validation[cur_task])} validation samples for task {cur_task}.')
 
     if args.bf16:
@@ -240,14 +189,13 @@ def main():
     all_text_lengths = sorted([len(tokenizer.tokenize(it)) for it in tqdm(united_text_corpus)])
     max_text_len = all_text_lengths[-1]
     median_text_len = all_text_lengths[(len(all_text_lengths) - 1) // 2]
+    mean_text_len = round(sum(all_text_lengths) / len(all_text_lengths))
     fredt5_logger.info(f'The maximal subwords in the text is {max_text_len}.')
     fredt5_logger.info(f'The minimal subwords in the text is {all_text_lengths[0]}.')
     fredt5_logger.info(f'The median subwords in the text is {median_text_len}.')
+    fredt5_logger.info(f'The mean subwords in the text is {mean_text_len}.')
 
-    if maximal_number_of_tokens_for_testing is None:
-        generation_max_length = 3 + round(1.1 * max_text_len)
-    else:
-        generation_max_length = 3 + round(1.1 * maximal_number_of_tokens_for_testing)
+    generation_max_length = 3 + round(1.1 * max_text_len)
     generation_config = GenerationConfig(
         top_k=10,
         penalty_alpha=0.6,
@@ -283,6 +231,17 @@ def main():
     del data_for_training
     fredt5_logger.info(f'All training texts are tokenized.')
 
+    data_for_training = split_by_environments(data_for_training_, mean_text_len)
+    del data_for_training_
+    info_msg = ''
+    for env in sorted(list(data_for_training.keys())):
+        info_msg += f' environment {env}: {len(data_for_training[env])} samples,'
+    info_msg = info_msg.strip()
+    if info_msg.endswith(','):
+        info_msg = info_msg[:-1] + '.'
+    info_msg = info_msg[0].upper() + info_msg[1:]
+    fredt5_logger.info(info_msg)
+
     n_training_batches = int(np.ceil(n_training_samples / (minibatch_size * gradient_accumulation)))
     if args.trainsize is not None:
         if args.trainsize < 100:
@@ -293,55 +252,6 @@ def main():
             n_training_batches = max(10, int(np.ceil(args.trainsize / (minibatch_size * gradient_accumulation))))
             max_epochs = round(max_epochs * (n_training_samples / args.trainsize))
     fredt5_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
-
-    if args.testsize is not None:
-        if args.testsize < 6:
-            err_msg = (f'The maximal number of validation samples per validated task is too small! '
-                       f'Expected 6 or greater, got {args.testsize}.')
-            fredt5_logger.error(err_msg)
-            raise ValueError(err_msg)
-        for task in tasks_for_validation:
-            if task.startswith('ner_'):
-                samples_with_ne = list(filter(
-                    lambda it: it[1].find('нет именованных сущностей такого типа') < 0,
-                    data_for_validation[task]
-                ))
-                samples_without_ne = list(filter(
-                    lambda it: it[1].find('нет именованных сущностей такого типа') >= 0,
-                    data_for_validation[task]
-                ))
-                if (len(samples_with_ne) + len(samples_without_ne)) != len(data_for_validation[task]):
-                    err_msg = f'The data for task {task} is incorrect!'
-                    fredt5_logger.error(err_msg)
-                    raise ValueError(err_msg)
-                if len(samples_with_ne) == 0:
-                    err_msg = f'The data for task {task} is incorrect!'
-                    fredt5_logger.error(err_msg)
-                    raise ValueError(err_msg)
-                if len(samples_without_ne) == 0:
-                    err_msg = f'The data for task {task} is incorrect!'
-                    fredt5_logger.error(err_msg)
-                    raise ValueError(err_msg)
-                if len(data_for_validation[task]) > args.testsize:
-                    if len(samples_with_ne) > math.ceil(args.testsize / 2):
-                        samples_for_ner = random.sample(samples_with_ne, k=math.ceil(args.testsize / 2))
-                    else:
-                        samples_for_ner = samples_with_ne
-                    if len(samples_without_ne) > (args.testsize - len(samples_for_ner)):
-                        samples_for_ner += random.sample(samples_without_ne, k=args.testsize - len(samples_for_ner))
-                    else:
-                        samples_for_ner += samples_without_ne
-                    del data_for_validation[task]
-                    data_for_validation[task] = samples_for_ner
-                    del samples_for_ner
-                del samples_with_ne, samples_without_ne
-            else:
-                if len(data_for_validation[task]) > args.testsize:
-                    data_for_validation[task] = random.sample(data_for_validation[task], k=args.testsize)
-
-        for task in tasks_for_validation:
-            info_msg = f'There are {len(data_for_validation[task])} test samples for task {task} after reducing.'
-            fredt5_logger.info(info_msg)
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,
@@ -376,15 +286,16 @@ def main():
         for _ in trange(n_training_batches):
             try:
                 x_input_ids, x_attention_mask, y_input_ids, y_attention_mask = sample_batch(
-                    data_for_training_,
+                    data_for_training,
                     tokenizer.pad_token_id,
-                    minibatch_size * gradient_accumulation
+                    minibatch_size * gradient_accumulation,
+                    warn=False
                 )
             except Exception as err:
                 fredt5_logger.error(str(err))
                 raise
             try:
-                envs = calculate_environments(x_attention_mask, y_attention_mask, median_text_len)
+                envs = calculate_environments(x_attention_mask, y_attention_mask, mean_text_len)
             except Exception as err:
                 fredt5_logger.error(str(err))
                 raise
@@ -404,9 +315,12 @@ def main():
                     decoder_attention_mask=y_attention_mask[batch_start:batch_end].to(device),
                     return_dict=True
                 )
-                train_nll = res.loss / gradient_accumulation
+                train_nll = res.loss
                 training_nll_val += float(train_nll.detach().cpu())
-                train_penalty = torch.tensor(0.).to(device)
+                if args.bf16:
+                    train_penalty = torch.tensor(0.).to(device).bfloat16()
+                else:
+                    train_penalty = torch.tensor(0.).to(device)
                 for _ in range(args.birm_samples):
                     ebd.re_init_with_noise(0.1)
                     env_embeddings = ebd(envs[batch_start:batch_end].to(device))
@@ -422,26 +336,32 @@ def main():
                     )[0]
                     train_penalty += (1.0 / args.birm_samples) * torch.mean(grad ** 2)
                     del train_logits_w, env_embeddings
+                train_penalty *= args.birm_penalty
                 training_penalty_val += float(train_penalty.detach().cpu())
-                weight_norm = torch.tensor(0.).to(device)
+                if args.bf16:
+                    weight_norm = torch.tensor(0.).to(device).bfloat16()
+                else:
+                    weight_norm = torch.tensor(0.).to(device)
                 for w in model.parameters():
                     weight_norm += w.norm().pow(2)
+                weight_norm *= l2_regularizer_weight
                 weight_norm_val += float(weight_norm.detach().cpu())
                 loss = train_nll.clone()
-                loss += l2_regularizer_weight * weight_norm
-                loss += args.birm_penalty * train_penalty
+                loss += weight_norm
+                loss += train_penalty
+                loss /= gradient_accumulation
                 total_training_loss_val += float(loss.detach().cpu())
                 loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             del envs
         total_training_loss_val /= float(n_training_batches)
-        training_nll_val /= float(n_training_batches)
-        weight_norm_val /= float(n_training_batches)
-        training_penalty_val /= float(n_training_batches)
+        training_nll_val /= float(n_training_batches * gradient_accumulation)
+        weight_norm_val /= float(n_training_batches * gradient_accumulation)
+        training_penalty_val /= float(n_training_batches * gradient_accumulation)
         info_msg = (f'Epoch {epoch}: total training loss is {total_training_loss_val}, '
-                    f'training cross-entropy is {training_nll_val}, training penalty is {training_penalty_val}, '
-                    f'weight norm is {weight_norm_val}.')
+                    f'training cross-entropy is {training_nll_val}, invariance penalty is {training_penalty_val}, '
+                    f'weight norm penalty is {weight_norm_val}.')
         fredt5_logger.info(info_msg)
         if len(env_freq) > 1:
             info_msg = f'Epoch {epoch}: {len(env_freq)} environments are used. They are: '

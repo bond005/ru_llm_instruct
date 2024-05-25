@@ -4,7 +4,6 @@ import os
 import random
 from typing import Dict, List, Tuple
 
-from nltk import wordpunct_tokenize
 from nltk.translate.chrf_score import sentence_chrf
 import numpy as np
 from seqeval.metrics import f1_score as ner_f1_score
@@ -16,7 +15,7 @@ from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGenera
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
-from utils.utils import calculate_word_error_rate, process_target, normalize_text
+from utils.utils import calculate_word_error_rate, process_target, normalize_text, tokenize_text
 
 
 KNOWN_TASKS = [
@@ -68,15 +67,147 @@ KNOWN_TASKS = [
 ]
 
 
+TASK_SYNONYMS = {
+    'asr_correction': {
+        'task': 'Исправь, пожалуйста, ошибки распознавания речи в следующем тексте.',
+        'synonyms': [
+            'Исправь ошибки распознавания речи в тексте.',
+            'Скорректируйте ошибки распознавания речи в этом тексте.',
+            'Исправь ошибки распознавания речи в предложенном тексте.',
+            'Будь добр, исправь погрешности в распознавании речи в следующем тексте.',
+            'Прошу тебя, исправь ошибки в распознавании речи в данном тексте.'
+        ]
+    },
+    'summarization': {
+        'task': 'Выполни саммаризацию и выдели, пожалуйста, основную мысль следующего текста.',
+        'synonyms': [
+            'Выполни сокращение текста и определи, пожалуйста, его главную идею.',
+            'Сделай краткую формулировку текста и укажи, пожалуйста, его центральную мысль.',
+            'Сократи текст и найди, пожалуйста, его ключевую идею.',
+            'Сведи текст к его сути и сообщи, пожалуйста, главную мысль.',
+            'Сделай резюме текста и подчеркни, пожалуйста, его основной смысл.',
+            'Какая основная мысль этого текста? Напиши кратко.',
+            'Что имел в виду автор следующего текста? Только коротко, пожалуйста.'
+        ]
+    },
+    'segmentation': {
+        'task': 'Разбей, пожалуйста, следующий текст на абзацы.',
+        'synonyms': [
+            'Раздели следующий текст на логические части.',
+            'Раздели, пожалуйста, этот текст на смысловые блоки.',
+            'Будь добр, раздели предложенный текст на секции.',
+            'Буду признателен, если ты разделишь следующий текст на абзацы для удобства чтения.',
+            'Будь любезен, разбей данный текст на отдельные смысловые блоки.',
+            'Разбей текст на абзацы',
+            'Разбей текст на отдельные абзацы.'
+        ]
+    },
+    'simplification': {
+        'task': 'Упрости, пожалуйста, следующий текст.',
+        'synonyms': [
+            'Сделай, пожалуйста, следующий текст проще.',
+            'Объясни текст более простыми словами.',
+            'Сделайте этот текст более понятным.',
+            'Если можно, упростите следующий текст для лучшего понимания.',
+            'Если тебя не затруднит, сделай данный текст более доступным для чтения.',
+            'Переформулируй текст, чтобы он стал проще.',
+            'Переформулируй текст, чтобы он стал проще и понятнее.'
+        ]
+    },
+    'ner_organization': {
+        'task': 'Найди, пожалуйста, все именованные сущности типа "Организация" в следующем тексте '
+                'и выпиши список таких сущностей.',
+        'synonyms': [
+            'Пожалуйста, найдите все названия организаций в предложенном тексте и составьте их перечень.',
+            'Будьте добры, выявите все упоминания об организациях в представленном тексте и составьте их список.',
+            'Если тебя не затруднит, найди все названия организаций в данном тексте и перечисли их.',
+            'Будь любезна, отыщи все упоминания об организациях в предоставленном тексте и составь их список.',
+            'Пожалуйста, найдите все названия организаций в этом тексте и составьте их список.'
+        ]
+    },
+    'ner_person': {
+        'task': 'Найди, пожалуйста, все именованные сущности типа "Человек" в следующем тексте '
+                'и выпиши список таких сущностей.',
+        'synonyms': [
+            'Пожалуйста, найдите все имена людей в предложенном тексте и составьте их перечень.',
+            'Будьте добры, выявите все упоминания о людях в представленном тексте и составьте их список.',
+            'Если тебя не затруднит, найди все имена людей в данном тексте и перечисли их.',
+            'Будь любезна, отыщи все упоминания о людях в предоставленном тексте и составь их список.',
+            'Пожалуйста, найдите все имена людей в этом тексте и составьте их список.'
+        ]
+    },
+    'ner_location': {
+        'task': 'Найди, пожалуйста, все именованные сущности типа "Местоположение" в следующем тексте '
+                'и выпиши список таких сущностей.',
+        'synonyms': [
+            'Пожалуйста, найдите все упоминания о местах в предложенном тексте и составьте их перечень.',
+            'Будьте добры, выявите все упоминания о локациях в представленном тексте и составьте их список.',
+            'Если тебя не затруднит, найди все геолокации в данном тексте и перечисли их.',
+            'Будь любезна, отыщи все упоминания о локациях в предоставленном тексте и составь их список.',
+            'Пожалуйста, найдите все географические объекты в этом тексте и составьте их список.'
+        ]
+    },
+    'paraphrase_detection': {
+        'task': 'Подскажи, пожалуйста, являются ли парафразами (то есть близкими по смыслу) следующие два текста?',
+        'synonyms': [
+            'Можешь, пожалуйста, подсказать, считаются ли эти два текста синонимичными?',
+            'Будь добр, помоги определить, выражают ли эти два текста одну и ту же мысль?',
+            'Подскажите, пожалуйста, являются ли эти два текста взаимозаменяемыми?',
+            'Ты можешь сказать, передают ли эти два текста идентичное значение?',
+            'Подскажите ответ на вопрос, выражают ли эти два текста одну и ту же идею?'
+        ]
+    },
+    'toxicity_detection': {
+        'task': 'Подскажи, пожалуйста, является ли токсичным (неприятным для какой-то группы людей, '
+                'нарушающим принципы этики) следующий текст?',
+        'synonyms': [
+            'Будь добр, подскажи, пожалуйста, содержит ли данный текст что-то оскорбительное или неприемлемое '
+            'для определённой группы людей?',
+            'Можешь ты сказать, есть ли в этом тексте что-то, что может быть неприятно или неуместно '
+            'для некоторых людей?',
+            'Как ты думаешь, может ли этот текст быть воспринят как оскорбительный или неуважительный для кого-то?',
+            'Можете ответить на вопрос, есть ли в этом тексте что-то, что может нарушить этические нормы или '
+            'стандарты?',
+            'Как вы считаете, может ли этот текст быть воспринят как неуважительный или неприемлемый для '
+            'определённой группы людей?'
+        ]
+    },
+    'detoxification': {
+        'task': 'Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным (неприятным для какой-то '
+                'группы людей, нарушающим принципы этики).',
+        'synonyms': [
+            'Переделай, пожалуйста, следующий текст таким образом, чтобы он стал менее оскорбительным или '
+            'более уважительным.',
+            'Перепиши следующий текст так, чтобы он соответствовал принципам этики и был менее обидным для '
+            'некоторых групп людей.',
+            'Можешь ли ты изменить следующий текст так, чтобы он не нарушал этических норм и не был неприятен для '
+            'некоторых людей?',
+            'Выполни редактирование предложенного текста так, чтобы он был более вежливым и никого не оскорблял.',
+            'Можете, пожалуйста, отредактировать следующий текст, чтобы он был более уважительным и не вызывал '
+            'негативных эмоций у читателей.',
+            'Перепиши текст, чтобы он перестал быть токсичным.',
+            'Переформулируй текст, чтобы он перестал быть оскорбительным.'
+        ]
+    }
+}
+
+
 def get_task_type(input_question: str, use_lm_tag: bool) -> int:
     found_idx = -1
     for idx, (task_prompt, task_type) in enumerate(KNOWN_TASKS):
         found_pos = input_question.find(task_prompt)
+        task_prompt_ = task_prompt
+        if found_pos < 0:
+            for prompt_synonym in TASK_SYNONYMS[task_type]['synonyms']:
+                found_pos = input_question.find(prompt_synonym)
+                if found_pos >= 0:
+                    task_prompt_ = prompt_synonym
+                    break
         if found_pos >= 0:
             if use_lm_tag:
-                found_pos = input_question.find('<LM>' + task_prompt)
+                found_pos = input_question.find('<LM>' + task_prompt_)
             else:
-                found_pos = input_question.find(task_prompt)
+                found_pos = input_question.find(task_prompt_)
             if found_pos != 0:
                 raise ValueError(f'The input question has an incorrect format! {input_question}')
             found_idx = idx
@@ -101,7 +232,7 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
             raise ValueError(err_msg)
         for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
             printed_results.append({'INPUT': input_, 'PREDICTED': predicted_, 'TRUE': target_})
-            arguments.append((wordpunct_tokenize(predicted_), wordpunct_tokenize(target_)))
+            arguments.append((tokenize_text(predicted_), tokenize_text(target_)))
     with Pool(processes=max(1, os.cpu_count())) as pool:
         res = pool.starmap(calculate_word_error_rate, arguments)
     del arguments
@@ -133,14 +264,14 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
         for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
             printed_results.append({'INPUT': input_, 'PREDICTED': predicted_, 'TRUE': target_})
             predicted_paragraphs = list(map(
-                lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
+                lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), tokenize_text(it3)))).strip(),
                 filter(
                     lambda it2: len(it2) > 0,
                     map(lambda it1: it1.strip(), predicted_.split('\n'))
                 )
             ))
             target_paragraphs = list(map(
-                lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(it3)))).strip(),
+                lambda it3: ' '.join(list(filter(lambda x: x.isalnum(), tokenize_text(it3)))).strip(),
                 filter(
                     lambda it2: len(it2) > 0,
                     map(lambda it1: it1.strip(), target_.split('\n'))
@@ -180,7 +311,7 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             if found_idx < 0:
                 raise ValueError(f'The text "{input_}" has not a correct prompt!')
             input_text_without_prompt = input_[(found_idx + len(prompt_tail)):].strip()
-            predicted_text_ = ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(predicted_.lower()))))
+            predicted_text_ = ' '.join(list(filter(lambda x: x.isalnum(), tokenize_text(predicted_.lower()))))
             if predicted_text_.find('в этом тексте нет именованных сущностей такого типа') >= 0:
                 predicted_named_entities = []
             else:
@@ -191,7 +322,7 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
                         map(lambda it1: it1.strip(), predicted_.split('\n'))
                     )
                 ))
-            target_text_ = ' '.join(list(filter(lambda x: x.isalnum(), wordpunct_tokenize(target_.lower()))))
+            target_text_ = ' '.join(list(filter(lambda x: x.isalnum(), tokenize_text(target_.lower()))))
             if target_text_.find('в этом тексте нет именованных сущностей такого типа') >= 0:
                 target_named_entities = []
             else:
@@ -243,7 +374,7 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
         predicted_texts = generate_answer(input_texts, tokenizer, config, model)
         for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
             target__ = ' '.join(
-                list(filter(lambda x: x.isalnum(), wordpunct_tokenize(' '.join(target_.strip().lower().split()))))
+                list(filter(lambda x: x.isalnum(), tokenize_text(' '.join(target_.strip().lower().split()))))
             )
             if target__ not in {'да', 'нет'}:
                 err_msg = f'The target text {target_} is impossible! Expected "да" or "нет".'
@@ -255,7 +386,7 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
                 da_true.append(0)
                 net_true.append(1)
             predicted__ = ' ' + ' '.join(
-                list(filter(lambda x: x.isalnum(), wordpunct_tokenize(' '.join(predicted_.strip().lower().split()))))
+                list(filter(lambda x: x.isalnum(), tokenize_text(' '.join(predicted_.strip().lower().split()))))
             ) + ' '
             da_idx = predicted__.find(' да ')
             net_idx = predicted__.find(' нет ')
