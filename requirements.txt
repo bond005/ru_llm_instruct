@@ -1,0 +1,13 @@
+augmentex==1.2.1
+datasets>=2.14.1
+evaluate>=0.4.1
+matplotlib
+nltk
+numpy
+scikit-learn>=1.0.1
+scipy
+seqeval>=1.2.0
+spacy>=3.6.0
+torch>=2.0.1
+tqdm>=4.65.0
+transformers>=4.39.0
