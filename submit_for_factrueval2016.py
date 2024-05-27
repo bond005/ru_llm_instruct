@@ -152,8 +152,9 @@ def main():
         question_prefix = ''
     else:
         question_prefix = '<LM>'
-    max_text_len = round(generation_config.max_length * 1.5)
+    max_text_len = generation_config.max_length * 2
     fredt5_logger.info(f'Maximal text length is {max_text_len}.')
+    no_entity_text_len = len(tokenizer.tokenize('В этом тексте нет именованных сущностей такого типа.</s>')) + 1
     for base_fname, source_text in tqdm(zip(base_names, source_texts), total=len(source_texts)):
         bounds_of_paragraphs = split_long_text(source_text, max_text_len, nlp)
         recognition_results = []
@@ -168,7 +169,7 @@ def main():
                 err_msg = f'The text is too short! {source_text[start_:end_]}'
                 fredt5_logger.error(err_msg)
                 raise ValueError(err_msg)
-            generation_config.max_length = n_tokens_in_text
+            generation_config.max_length = max(round(0.33 * n_tokens_in_text) + 1, no_entity_text_len)
             answers = generate_answer(
                 questions=questions,
                 tokenizer=tokenizer,
