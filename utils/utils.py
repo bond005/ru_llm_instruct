@@ -104,20 +104,17 @@ def split_text_by_sentences(text: str, nlp: Language) -> Tuple[List[Tuple[int, i
 def split_long_text(long_text: str, maxlen: int, nlp: Language) -> List[Tuple[int, int]]:
     if len(long_text) <= maxlen:
         shorter_texts = [(0, len(long_text))]
-        print(f'\nlong_text = {long_text}')  # for debug
     else:
         sentences, tokens = split_text_by_sentences(long_text, nlp)
         if len(sentences) > 1:
             middle_sentence_idx = (len(sentences) - 1) // 2
             middle_token_idx = sentences[middle_sentence_idx][1] - 1
+            del middle_sentence_idx
         else:
             middle_token_idx = (len(tokens) - 1) // 2
         middle_char_idx = tokens[middle_token_idx][1]
-        del sentences, tokens
-        print(f'\nlong_text = {long_text}')  # for debug
-        print(f'long_text[:{middle_char_idx}] = {long_text[:middle_char_idx]}')  # for debug
-        print(f'long_text[{middle_char_idx}:] = {long_text[middle_char_idx:]}')  # for debug
+        del sentences, tokens, middle_token_idx
         shorter_texts = split_long_text(long_text[:middle_char_idx], maxlen, nlp)
-        shorter_texts += [(it[0] + middle_char_idx, it[1] + middle_token_idx)
-                          for it in split_long_text(long_text[middle_char_idx:], maxlen, nlp)]
+        shorter_texts += list(map(lambda it: (it[0] + middle_char_idx, it[1] + middle_char_idx),
+                                  split_long_text(long_text[middle_char_idx:], maxlen, nlp)))
     return shorter_texts

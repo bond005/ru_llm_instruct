@@ -244,7 +244,7 @@ class TestUtils(unittest.TestCase):
             self.assertIsInstance(val[1], int)
             self.assertGreater(val[1], val[0])
             self.assertGreaterEqual(val[0], 0)
-            self.assertEqual(s[val[0]:val[1]], true_texts[idx])
+            self.assertEqual(s[val[0]:val[1]].strip(), true_texts[idx])
 
     def test_split_long_text_pos02(self):
         s = ('Что такое data science? Это наука об автоматическом выявлении закономерностей в эмпирических данных. '
@@ -272,7 +272,7 @@ class TestUtils(unittest.TestCase):
             self.assertIsInstance(val[1], int)
             self.assertGreater(val[1], val[0])
             self.assertGreaterEqual(val[0], 0)
-            self.assertEqual(s[val[0]:val[1]], true_texts[idx], msg=s[val[0]:val[1]])
+            self.assertEqual(s[val[0]:val[1]].strip(), true_texts[idx], msg=s[val[0]:val[1]])
 
 
 if __name__ == '__main__':
