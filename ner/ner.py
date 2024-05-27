@@ -53,3 +53,64 @@ def find_entities_in_text(source_text: str, entities: List[str], entity_class: s
                    f'{len(tokens_of_text)} != {len(entity_labels)}')
         raise ValueError(err_msg)
     return list(zip(tokens_of_text, entity_labels))
+
+
+def match_entities_to_tokens(tokens: List[str], prepared_entities: List[List[str]],
+                             entity_bounds: List[Tuple[int, int]], penalty: int,
+                             start_pos: int = 0) -> List[Tuple[List[Tuple[int, int]], int]]:
+    if len(prepared_entities) == 0:
+        return [([], 0)]
+    if (len(tokens) == 0) and (len(prepared_entities) > 0):
+        return [(entity_bounds, penalty + len(prepared_entities))]
+    new_penalty = penalty
+    found_token_idx = find_subphrase(tokens, prepared_entities[0])
+    if found_token_idx >= 0:
+        entity_bounds_ = entity_bounds + [(
+            found_token_idx + start_pos,
+            found_token_idx + len(prepared_entities[0]) + start_pos
+        )]
+        if len(prepared_entities) > 1:
+            res = match_entities_to_tokens(tokens[(found_token_idx + len(prepared_entities[0])):],
+                                           prepared_entities[1:], entity_bounds_,
+                                           new_penalty, found_token_idx + len(prepared_entities[0]) + start_pos)
+            res += match_entities_to_tokens(tokens[found_token_idx:], prepared_entities[1:], entity_bounds_,
+                                            new_penalty, found_token_idx + start_pos)
+        else:
+            res = [(entity_bounds_, new_penalty)]
+    else:
+        new_penalty += 1
+        if len(prepared_entities) > 1:
+            res = match_entities_to_tokens(tokens, prepared_entities[1:], entity_bounds, new_penalty, start_pos)
+        else:
+            res = [(entity_bounds, new_penalty)]
+    return res
+
+
+def calculate_entity_bounds(source_text: str, entities: List[str]) -> List[Tuple[int, int]]:
+    tokens_of_text = tokenize_text(source_text)
+    if ' '.join(tokens_of_text).lower() == 'в этом тексте нет именованных сущностей такого типа':
+        return []
+    token_bounds = []
+    start_pos = 0
+    for cur_token in tokens_of_text:
+        found_char_idx = source_text[start_pos:].find(cur_token)
+        if found_char_idx < 0:
+            err_msg = f'The token {cur_token} is not found in the text {source_text}'
+            raise RuntimeError(err_msg)
+        token_bounds.append((found_char_idx + start_pos, found_char_idx + start_pos + len(cur_token)))
+        start_pos = found_char_idx + start_pos + len(cur_token)
+    prepared_entities = []
+    for cur_entity in entities:
+        postprocessed_entity = cur_entity.strip()
+        while postprocessed_entity.endswith('</s>'):
+            postprocessed_entity = postprocessed_entity[:-4].strip()
+        prepared_entities.append(tokenize_text(postprocessed_entity))
+    variants_of_entity_bounds = match_entities_to_tokens(tokens_of_text, prepared_entities, [], 0)
+    variants_of_entity_bounds.sort(key=lambda it: (it[1], abs(len(entities) - len(it[0]))))
+    entity_bounds = []
+    for entity_token_start, entity_token_end in variants_of_entity_bounds[0][0]:
+        entity_bounds.append((
+            token_bounds[entity_token_start][0],
+            token_bounds[entity_token_end - 1][1]
+        ))
+    return entity_bounds

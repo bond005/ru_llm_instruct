@@ -3,11 +3,11 @@ import sys
 import unittest
 
 try:
-    from ner.ner import find_subphrase, find_entities_in_text
+    from ner.ner import find_subphrase, find_entities_in_text, calculate_entity_bounds, match_entities_to_tokens
     from ner.factrueval import load_sample, join_nested_entities, load_spans, extend_entity_bounds
 except:
     sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-    from ner.ner import find_subphrase, find_entities_in_text
+    from ner.ner import find_subphrase, find_entities_in_text, calculate_entity_bounds, match_entities_to_tokens
     from ner.factrueval import load_sample, join_nested_entities, load_spans, extend_entity_bounds
 
 
@@ -299,6 +299,227 @@ class TestNER(unittest.TestCase):
         entity_class = 'ORGANIZATION'
         with self.assertRaises(ValueError):
             _ = find_entities_in_text(source_text, entities, entity_class, raise_exception=True)
+
+    def test_calculate_entity_bounds_pos01(self):
+        source_text = ('1 февраля на ступеньках будущего президентского центра наследия возле бизнес-центра «Демидов» '
+                       'открылся памятник первому президенту России Борису Николаевичу Ельцину. Об этом человеке '
+                       'говорят разное, особенно на Урале, где его знали не только как президента, но и как '
+                       'специалиста в строительной отрасли, первого секретаря Свердловского обкома КПСС. '
+                       'Но отрицать его огромные заслуги невозможно. Уральцы никогда не забудут того, что сделал '
+                       'Борис Николаевич для Свердловской области, ещё будучи первым секретарём обкома партии. '
+                       'По словам свердловского губернатора Александра Мишарина, «уже тогда для него не существовало '
+                       'понятия „невыполнимо“, он жил другими категориями и всех вокруг себя заряжал уверенностью».\n\n'
+                       'В Екатеринбурге много связано с именем Бориса Николаевича: в его честь названа улица, '
+                       'Уральский центр, его имя носит университет, ежегодно в уральской столице на кубок по волейболу '
+                       'имени первого российского президента собираются лучшие мировые команды. '
+                       'А теперь память о нём будет увековечена в мраморе. Президентский центр наследия ещё '
+                       'не достроен, но десятиметровая мраморная стела-обелиск с барельефом украсила город уже сегодня.'
+                       '\n\nСкульптор Георгий Франгулян в 2007 году соорудил памятный мотив в виде флага на могиле '
+                       'Бориса Ельцина, его работа очень понравилась супруге первого президента — Наине Иосифовне, и '
+                       'создание обелиска тоже поручили этому художнику. По мнению скульптора, мрамор — наилучший '
+                       'материал для воплощения его замысла. Было принято решение сделать его не в бронзе, не '
+                       'в граните, а в мраморе, мрамор живой материал, полупрозрачный, он очень хорошо сочетается с '
+                       'нашим климатом. «Это такая глыба в движении, это глыба, которой и был Борис Николаевич '
+                       'Ельцин», — говорит скульптор.\n\nСпециально на торжества, посвященные юбилею Бориса '
+                       'Николаевича в Екатеринбург прибыл президент РФ Дмитрий Медведев. Сегодня утром, открывая '
+                       'памятник, он отметил, что «Россия должна быть благодарна Ельцину за то, что в самый сложный '
+                       'период страна не свернула с пути изменений, провела серьёзные преобразования и сегодня '
+                       'движется вперёд». В церемонии также приняли участие вдова Ельцина Наина Иосифовна, '
+                       'его друзья, представители федеральной власти, глава Свердловской области Александр Мишарин, '
+                       'руководители соседних регионов.\n\nБорис Николаевич сделал больше чем кто бы то ни было для '
+                       'создания правового государства, гражданского общества в нашей стране. Мы помним, какую '
+                       'значительную роль в создании Конституции сыграл первый президент России. И в дни празднования '
+                       'юбилея Бориса Николаевича в городе проходит первый Форум общенациональной программы '
+                       '«Гражданское общество — модернизация России», на котором обсуждаются важнейшие вопросы. '
+                       'Вчера на форуме работали секции, посвящённые средствам массовой информации, судебной и '
+                       'военной реформам, модернизации экономики, материнству и защите детства, экологии и другим не '
+                       'менее важным проблемам нашей действительности. Гражданское общество — это общество, в котором '
+                       'власть нацелена на поддержку тех общественных институтов, которые в конечном итоге делают более'
+                       'комфортной жизнь человека. И на Урале такие институты активно создаются. В регионе первым '
+                       'в России возник институт Уполномоченного по правам человека. В конце 80-х, начале 90-х годов '
+                       'прошлого века в Свердловске появилась городская дискуссионная трибуна — один из первых '
+                       'российских, как выражались тогда, «рупоров гласности». И заложил основу этому первый '
+                       'президент, живший тогда ещё в Свердловской области. В мае 1981 года, во Дворце молодёжи, '
+                       'он провёл знаковую встречу со студентами и преподавателями 16 свердловских вузов. В 1982 году '
+                       'появились регулярные телевизионные передачи-разговоры Ельцина с жителями области. Это было '
+                       'начало строительства гражданского общества в не самую, казалось бы, подходящую эпоху.\n\n'
+                       'Тем временем, сообщает «Новый Регион — Екатеринбург», 1 февраля 2001 года, в день 80-й '
+                       'годовщины со дня рождения Бориса Николаевича, уличные художники проведут в Екатеринбурге '
+                       'праздничную акцию и откроют «альтернативный памятник Ельцину».')
+        entities = ['президентского центра наследия', 'Свердловского обкома КПСС', 'обкома партии',
+                    'Уральский центр', 'Президентский центр наследия', '«Новый Регион — Екатеринбург»']
+        true_entity_bounds = [
+            (33, 63),
+            (321, 346),
+            (509, 522),
+            (796, 811),
+            (1014, 1042),
+            (3755, 3784)
+        ]
+        predicted_bounds = calculate_entity_bounds(source_text, entities)
+        self.assertIsInstance(predicted_bounds, list)
+        self.assertEqual(len(predicted_bounds), len(true_entity_bounds))
+        for idx in range(len(true_entity_bounds)):
+            self.assertIsInstance(predicted_bounds[idx], tuple, msg=f'Entity {idx} has incorrect type!')
+            self.assertEqual(len(predicted_bounds[idx]), 2, msg=f'Entity {idx} has incorrect length!')
+            self.assertEqual(predicted_bounds[idx],true_entity_bounds[idx], msg=f'Entity {idx} is wrong!')
+
+    def test_calculate_entity_bounds_pos02(self):
+        source_text = ('В числе претендентов на место Саутера называли высшего чиновника министерства юстиции '
+                       'Елену Каган (Elena Kagan) и судью апелляционного суда Дайан Вуд (Diane Wood).')
+        entities = ['министерства юстиции', 'министерства', 'апелляционного суда']
+        true_entity_bounds = [
+            (65, 85),
+            (65, 77),
+            (120, 139)
+        ]
+        predicted_bounds = calculate_entity_bounds(source_text, entities)
+        self.assertIsInstance(predicted_bounds, list)
+        self.assertEqual(len(predicted_bounds), len(true_entity_bounds))
+        for idx in range(len(true_entity_bounds)):
+            self.assertIsInstance(predicted_bounds[idx], tuple, msg=f'Entity {idx} has incorrect type!')
+            self.assertEqual(len(predicted_bounds[idx]), 2, msg=f'Entity {idx} has incorrect length!')
+            self.assertEqual(predicted_bounds[idx],true_entity_bounds[idx], msg=f'Entity {idx} is wrong!')
+
+    def test_calculate_entity_bounds_pos03(self):
+        source_text = 'В этом тексте нет именованных сущностей такого типа.'
+        entities = ['министерства юстиции', 'министерства', 'апелляционного суда']
+        predicted_bounds = calculate_entity_bounds(source_text, entities)
+        self.assertIsInstance(predicted_bounds, list)
+        self.assertEqual(len(predicted_bounds), 0)
+
+    def test_match_entities_to_tokens_pos01(self):
+        tokens = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        entities = [['b', 'c'], ['f']]
+        true_entity_bounds = [(1, 3), (5, 6)]
+        true_penalty = 0
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertGreater(len(predicted_variants), 0)
+        for cur_variant in predicted_variants:
+            self.assertIsInstance(cur_variant, tuple, msg=f'{cur_variant}')
+            self.assertEqual(len(cur_variant), 2, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[0], list, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[1], int, msg=f'{cur_variant}')
+            self.assertGreaterEqual(cur_variant[1], 0, msg=f'{cur_variant}')
+            for it in cur_variant[0]:
+                self.assertIsInstance(it, tuple, msg=f'{cur_variant}')
+                self.assertEqual(len(it), 2, msg=f'{cur_variant}')
+                self.assertIsInstance(it[0], int, msg=f'{cur_variant}')
+                self.assertIsInstance(it[1], int, msg=f'{cur_variant}')
+                self.assertLess(it[0], it[1], msg=f'{cur_variant}')
+                self.assertGreaterEqual(it[0], 0, msg=f'{cur_variant}')
+        predicted_variants.sort(key=lambda it: it[1])
+        self.assertEqual(predicted_variants[0][1], true_penalty, msg=f'{predicted_variants[0]}')
+        self.assertEqual(predicted_variants[0][0], true_entity_bounds, msg=f'{predicted_variants[0]}')
+
+    def test_match_entities_to_tokens_pos02(self):
+        tokens = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        entities = [['b', 'c'], ['c'], ['f']]
+        true_entity_bounds = [(1, 3), (2, 3), (5, 6)]
+        true_penalty = 0
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertGreater(len(predicted_variants), 0)
+        for cur_variant in predicted_variants:
+            self.assertIsInstance(cur_variant, tuple, msg=f'{cur_variant}')
+            self.assertEqual(len(cur_variant), 2, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[0], list, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[1], int, msg=f'{cur_variant}')
+            self.assertGreaterEqual(cur_variant[1], 0, msg=f'{cur_variant}')
+            for it in cur_variant[0]:
+                self.assertIsInstance(it, tuple, msg=f'{cur_variant}')
+                self.assertEqual(len(it), 2, msg=f'{cur_variant}')
+                self.assertIsInstance(it[0], int, msg=f'{cur_variant}')
+                self.assertIsInstance(it[1], int, msg=f'{cur_variant}')
+                self.assertLess(it[0], it[1], msg=f'{cur_variant}')
+                self.assertGreaterEqual(it[0], 0, msg=f'{cur_variant}')
+        predicted_variants.sort(key=lambda it: it[1])
+        self.assertEqual(predicted_variants[0][1], true_penalty, msg=f'{predicted_variants[0]}')
+        self.assertEqual(predicted_variants[0][0], true_entity_bounds, msg=f'{predicted_variants[0]}')
+
+    def test_match_entities_to_tokens_pos03(self):
+        tokens = ['a', 'b', 'c', 'd', 'c', 'f', 'g']
+        entities = [['b', 'c'], ['c'], ['f']]
+        true_entity_bounds = [(1, 3), (4, 5), (5, 6)]
+        true_penalty = 0
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertGreater(len(predicted_variants), 0)
+        for cur_variant in predicted_variants:
+            self.assertIsInstance(cur_variant, tuple, msg=f'{cur_variant}')
+            self.assertEqual(len(cur_variant), 2, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[0], list, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[1], int, msg=f'{cur_variant}')
+            self.assertGreaterEqual(cur_variant[1], 0, msg=f'{cur_variant}')
+            for it in cur_variant[0]:
+                self.assertIsInstance(it, tuple, msg=f'{cur_variant}')
+                self.assertEqual(len(it), 2, msg=f'{cur_variant}')
+                self.assertIsInstance(it[0], int, msg=f'{cur_variant}')
+                self.assertIsInstance(it[1], int, msg=f'{cur_variant}')
+                self.assertLess(it[0], it[1], msg=f'{cur_variant}')
+                self.assertGreaterEqual(it[0], 0, msg=f'{cur_variant}')
+        predicted_variants.sort(key=lambda it: it[1])
+        self.assertEqual(predicted_variants[0][1], true_penalty, msg=f'{predicted_variants[0]}')
+        self.assertEqual(predicted_variants[0][0], true_entity_bounds, msg=f'{predicted_variants[0]}')
+
+    def test_match_entities_to_tokens_pos04(self):
+        tokens = ['a', 'b', 'c', 'd', 'c', 'f', 'g']
+        entities = [['b', 'c'], ['c'], ['c', 'f']]
+        true_entity_bounds = [(1, 3), (4, 5), (4, 6)]
+        true_penalty = 0
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertGreater(len(predicted_variants), 0)
+        for cur_variant in predicted_variants:
+            self.assertIsInstance(cur_variant, tuple, msg=f'{cur_variant}')
+            self.assertEqual(len(cur_variant), 2, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[0], list, msg=f'{cur_variant}')
+            self.assertIsInstance(cur_variant[1], int, msg=f'{cur_variant}')
+            self.assertGreaterEqual(cur_variant[1], 0, msg=f'{cur_variant}')
+            for it in cur_variant[0]:
+                self.assertIsInstance(it, tuple, msg=f'{cur_variant}')
+                self.assertEqual(len(it), 2, msg=f'{cur_variant}')
+                self.assertIsInstance(it[0], int, msg=f'{cur_variant}')
+                self.assertIsInstance(it[1], int, msg=f'{cur_variant}')
+                self.assertLess(it[0], it[1], msg=f'{cur_variant}')
+                self.assertGreaterEqual(it[0], 0, msg=f'{cur_variant}')
+        predicted_variants.sort(key=lambda it: it[1])
+        self.assertEqual(predicted_variants[0][1], true_penalty, msg=f'{predicted_variants[0]}')
+        self.assertEqual(predicted_variants[0][0], true_entity_bounds, msg=f'{predicted_variants[0]}')
+
+    def test_match_entities_to_tokens_neg01(self):
+        tokens = ['a', 'b', 'c', 'd', 'c', 'f', 'g']
+        entities = []
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertEqual(len(predicted_variants), 1)
+        true_entity_bounds = []
+        true_penalty = 0
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertEqual(len(predicted_variants), 1)
+        self.assertIsInstance(predicted_variants[0], tuple)
+        self.assertEqual(len(predicted_variants[0]), 2)
+        self.assertIsInstance(predicted_variants[0][0], list)
+        self.assertIsInstance(predicted_variants[0][1], int)
+        self.assertEqual(predicted_variants[0][0], true_entity_bounds)
+        self.assertEqual(predicted_variants[0][1], true_penalty)
+
+    def test_match_entities_to_tokens_neg02(self):
+        tokens = []
+        entities = [['b', 'c'], ['c'], ['c', 'f']]
+        true_entity_bounds = []
+        true_penalty = 3
+        predicted_variants = match_entities_to_tokens(tokens, entities, [], 0)
+        self.assertIsInstance(predicted_variants, list)
+        self.assertEqual(len(predicted_variants), 1)
+        self.assertIsInstance(predicted_variants[0], tuple)
+        self.assertEqual(len(predicted_variants[0]), 2)
+        self.assertIsInstance(predicted_variants[0][0], list)
+        self.assertIsInstance(predicted_variants[0][1], int)
+        self.assertEqual(predicted_variants[0][0], true_entity_bounds)
+        self.assertEqual(predicted_variants[0][1], true_penalty)
 
 
 class TestFactRuEval(unittest.TestCase):

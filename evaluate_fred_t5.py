@@ -1,6 +1,6 @@
+from argparse import ArgumentParser
 import codecs
 import json
-from argparse import ArgumentParser
 import logging
 import math
 import os
