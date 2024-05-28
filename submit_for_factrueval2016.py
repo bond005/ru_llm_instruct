@@ -121,7 +121,7 @@ def main():
             raise RuntimeError(err_msg)
         base_names.append(new_base_name)
         with open(full_fname, 'rb') as fp:
-            full_text = fp.read().decode('utf-8')
+            full_text = fp.read().decode('utf-8').replace('\r', '')
         if len(full_text.strip()) == 0:
             err_msg = f'The file "{full_fname}" is empty!'
             fredt5_logger.error(err_msg)
@@ -152,7 +152,7 @@ def main():
         question_prefix = ''
     else:
         question_prefix = '<LM>'
-    max_text_len = generation_config.max_length * 2
+    max_text_len = round(generation_config.max_length * 1.5)
     fredt5_logger.info(f'Maximal text length is {max_text_len}.')
     no_entity_text_len = len(tokenizer.tokenize('В этом тексте нет именованных сущностей такого типа.</s>')) + 1
     for base_fname, source_text in tqdm(zip(base_names, source_texts), total=len(source_texts)):
