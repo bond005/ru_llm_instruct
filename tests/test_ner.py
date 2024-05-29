@@ -369,11 +369,27 @@ class TestNER(unittest.TestCase):
                        'Елену Каган (Elena Kagan) и судью апелляционного суда Дайан Вуд (Diane Wood).')
         entities = ['министерства юстиции', 'министерства', 'апелляционного суда']
         true_entity_bounds = [
-            (65, 85),
             (65, 77),
+            (65, 85),
             (120, 139)
         ]
-        predicted_bounds = calculate_entity_bounds(source_text, entities)
+        predicted_bounds = calculate_entity_bounds(source_text, entities, nested=True)
+        self.assertIsInstance(predicted_bounds, list)
+        self.assertEqual(len(predicted_bounds), len(true_entity_bounds))
+        for idx in range(len(true_entity_bounds)):
+            self.assertIsInstance(predicted_bounds[idx], tuple, msg=f'Entity {idx} has incorrect type!')
+            self.assertEqual(len(predicted_bounds[idx]), 2, msg=f'Entity {idx} has incorrect length!')
+            self.assertEqual(predicted_bounds[idx], true_entity_bounds[idx], msg=f'Entity {idx} is wrong!')
+
+    def test_calculate_entity_bounds_pos03(self):
+        source_text = ('В числе претендентов на место Саутера называли высшего чиновника министерства юстиции '
+                       'Елену Каган (Elena Kagan) и судью апелляционного суда Дайан Вуд (Diane Wood).')
+        entities = ['министерства юстиции', 'министерства', 'апелляционного суда']
+        true_entity_bounds = [
+            (65, 85),
+            (120, 139)
+        ]
+        predicted_bounds = calculate_entity_bounds(source_text, entities, nested=False)
         self.assertIsInstance(predicted_bounds, list)
         self.assertEqual(len(predicted_bounds), len(true_entity_bounds))
         for idx in range(len(true_entity_bounds)):
@@ -381,7 +397,7 @@ class TestNER(unittest.TestCase):
             self.assertEqual(len(predicted_bounds[idx]), 2, msg=f'Entity {idx} has incorrect length!')
             self.assertEqual(predicted_bounds[idx],true_entity_bounds[idx], msg=f'Entity {idx} is wrong!')
 
-    def test_calculate_entity_bounds_pos03(self):
+    def test_calculate_entity_bounds_pos04(self):
         source_text = 'В этом тексте нет именованных сущностей такого типа.'
         entities = ['министерства юстиции', 'министерства', 'апелляционного суда']
         predicted_bounds = calculate_entity_bounds(source_text, entities)

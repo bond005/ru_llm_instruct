@@ -21,23 +21,32 @@ from utils.utils import split_long_text
 fredt5_logger = logging.getLogger(__name__)
 
 
-def check_entity_bounds(entity_bounds: List[Tuple[int, int]], text: str):
-    for entity_start, entity_end in entity_bounds:
-        err_msg = f'The entity ({entity_start}, {entity_end}) is wrong for text {text}'
-        if text[entity_start].isspace():
+def check_paragraphs(text: str, paragraph_bounds: List[Tuple[int, int]]):
+    if len(paragraph_bounds) == 0:
+        err_msg = 'The paragraphs list is empty!'
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
+    if paragraph_bounds[0][0] != 0:
+        err_msg = f'The paragraph {paragraph_bounds[0]} is wrong (the text length is {len(text)})!'
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
+    if paragraph_bounds[-1][1] != len(text):
+        err_msg = f'The paragraph {paragraph_bounds[-1]} is wrong (the text length is {len(text)})!'
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
+    if paragraph_bounds[0][0] >= paragraph_bounds[0][1]:
+        err_msg = f'The paragraph {paragraph_bounds[0]} is wrong (the text length is {len(text)})!'
+        fredt5_logger.error(err_msg)
+        raise ValueError(err_msg)
+    for idx in range(1, len(paragraph_bounds)):
+        if paragraph_bounds[idx - 1][1] != paragraph_bounds[idx][0]:
+            err_msg = f'The paragraph {paragraph_bounds[idx]} is wrong (the text length is {len(text)})!'
             fredt5_logger.error(err_msg)
             raise ValueError(err_msg)
-        if text[entity_end - 1].isspace():
+        if paragraph_bounds[idx][0] >= paragraph_bounds[idx][1]:
+            err_msg = f'The paragraph {paragraph_bounds[idx]} is wrong (the text length is {len(text)})!'
             fredt5_logger.error(err_msg)
             raise ValueError(err_msg)
-        if entity_start > 0:
-            if text[entity_start - 1].isalnum():
-                fredt5_logger.error(err_msg)
-                raise ValueError(err_msg)
-        if entity_end < len(text):
-            if text[entity_end].isalnum():
-                fredt5_logger.error(err_msg)
-                raise ValueError(err_msg)
 
 
 def main():
@@ -157,6 +166,7 @@ def main():
     no_entity_text_len = len(tokenizer.tokenize('В этом тексте нет именованных сущностей такого типа.</s>')) + 1
     for base_fname, source_text in tqdm(zip(base_names, source_texts), total=len(source_texts)):
         bounds_of_paragraphs = split_long_text(source_text, max_text_len, nlp)
+        check_paragraphs(source_text, bounds_of_paragraphs)
         recognition_results = []
         for start_, end_ in bounds_of_paragraphs:
             questions = [
@@ -180,11 +190,8 @@ def main():
             locations = list(filter(lambda it2: len(it2) > 0, map(lambda it1: it1.strip(), answers[1].split('\n'))))
             persons = list(filter(lambda it2: len(it2) > 0, map(lambda it1: it1.strip(), answers[2].split('\n'))))
             bounds_of_organizations = calculate_entity_bounds(source_text[start_:end_], organizations)
-            check_entity_bounds(bounds_of_organizations, source_text[start_:end_])
             bounds_of_locations = calculate_entity_bounds(source_text[start_:end_], locations)
-            check_entity_bounds(bounds_of_locations, source_text[start_:end_])
             bounds_of_persons = calculate_entity_bounds(source_text[start_:end_], persons)
-            check_entity_bounds(bounds_of_persons, source_text[start_:end_])
             recognition_results += [('org', it[0] + start_, it[1] - it[0]) for it in bounds_of_organizations]
             recognition_results += [('loc', it[0] + start_, it[1] - it[0]) for it in bounds_of_locations]
             recognition_results += [('per', it[0] + start_, it[1] - it[0]) for it in bounds_of_persons]
@@ -197,6 +204,7 @@ def main():
         with codecs.open(filename=full_fname, mode='w', encoding='utf-8') as fp:
             for res in recognition_results:
                 fp.write(f'{res[0]} {res[1]} {res[2]}\n')
+    fredt5_logger.info('Named entities in all texts are recognized.')
 
 
 if __name__ == '__main__':

@@ -56,8 +56,8 @@ def find_entities_in_text(source_text: str, entities: List[str], entity_class: s
 
 
 def match_entities_to_tokens(tokens: List[str], prepared_entities: List[List[str]],
-                             entity_bounds: List[Tuple[int, int]], penalty: int,
-                             start_pos: int = 0) -> List[Tuple[List[Tuple[int, int]], int]]:
+                             entity_bounds: List[Tuple[int, int]],
+                             penalty: int, start_pos: int = 0) -> List[Tuple[List[Tuple[int, int]], int]]:
     if len(prepared_entities) == 0:
         return [([], 0)]
     if (len(tokens) == 0) and (len(prepared_entities) > 0):
@@ -86,7 +86,18 @@ def match_entities_to_tokens(tokens: List[str], prepared_entities: List[List[str
     return res
 
 
-def calculate_entity_bounds(source_text: str, entities: List[str]) -> List[Tuple[int, int]]:
+def check_nested(bounds: List[Tuple[int, int]]) -> bool:
+    if len(bounds) < 2:
+        return False
+    ok = False
+    for idx in range(1, len(bounds)):
+        if bounds[idx - 1][1] > bounds[idx][0]:
+            ok = True
+            break
+    return ok
+
+
+def calculate_entity_bounds(source_text: str, entities: List[str], nested: bool = False) -> List[Tuple[int, int]]:
     tokens_of_text = tokenize_text(source_text)
     if ' '.join(tokens_of_text).lower() == 'в этом тексте нет именованных сущностей такого типа':
         return []
@@ -107,10 +118,22 @@ def calculate_entity_bounds(source_text: str, entities: List[str]) -> List[Tuple
         prepared_entities.append(tokenize_text(postprocessed_entity))
     variants_of_entity_bounds = match_entities_to_tokens(tokens_of_text, prepared_entities, [], 0)
     variants_of_entity_bounds.sort(key=lambda it: (it[1], abs(len(entities) - len(it[0]))))
+    variants_of_entity_bounds = list(filter(lambda it: len(it[0]) > 0, variants_of_entity_bounds))
+    variants_of_entity_bounds_ = [
+        (
+            sorted(list(set(cur[0])), key=lambda x: (x[0], x[1])),
+            cur[1]
+        )
+        for cur in variants_of_entity_bounds
+    ]
+    del variants_of_entity_bounds
     entity_bounds = []
-    for entity_token_start, entity_token_end in variants_of_entity_bounds[0][0]:
-        entity_bounds.append((
-            token_bounds[entity_token_start][0],
-            token_bounds[entity_token_end - 1][1]
-        ))
+    if len(variants_of_entity_bounds_) > 0:
+        if not nested:
+            variants_of_entity_bounds_ = list(filter(lambda it: not check_nested(it[0]), variants_of_entity_bounds_))
+        for entity_token_start, entity_token_end in variants_of_entity_bounds_[0][0]:
+            entity_bounds.append((
+                token_bounds[entity_token_start][0],
+                token_bounds[entity_token_end - 1][1]
+            ))
     return entity_bounds
