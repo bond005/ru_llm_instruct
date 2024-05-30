@@ -19,10 +19,6 @@ fredt5_logger = logging.getLogger(__name__)
 
 
 def main():
-    task_types = [it[1] for it in KNOWN_TASKS]
-    task_ID = task_types.index('simplification')
-    del task_types
-
     random.seed(42)
     torch.manual_seed(42)
     np.random.seed(42)
@@ -45,10 +41,21 @@ def main():
                         help='The full path to the input CSV file with hidden test set.')
     parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
                         help='The <LM> tag is not used.')
+    parser.add_argument('--tab', dest='tab', action='store_true', required=False,
+                        help='Is tab used as separator instead of comma?')
     parser.add_argument('--dtype', dest='dtype', required=False, default='float32', type=str,
                         choices=['float32', 'float16', 'bfloat16', 'bf16', 'fp16', 'fp32'],
                         help='The PyTorch tensor type for inference.')
+    parser.add_argument('--header', dest='input_header', type=str, required=False, default=None,
+                        help='The header in the input CSV file.')
+    parser.add_argument('-t', '--task', dest='task_type', type=str, choices=['simplification', 'detoxification'],
+                        required=False, default='simplification',
+                        help='The task type (simplification or detoxification).')
     args = parser.parse_args()
+
+    task_types = [it[1] for it in KNOWN_TASKS]
+    task_ID = task_types.index(args.task_type)
+    del task_types
 
     submission_fname: str = os.path.normpath(args.output_fname)
     if not os.path.isfile(submission_fname):
@@ -90,14 +97,32 @@ def main():
     system_prompt = question_prefix + KNOWN_TASKS[task_ID][0] + ' '
     fredt5_logger.info(f'System prompt is: {system_prompt}')
     with codecs.open(input_fname, mode='r', encoding='utf-8', errors='ignore') as fp:
-        csv_reader = csv.reader(fp, delimiter=',', quotechar='"')
-        input_texts = list(map(
-            lambda it3: system_prompt + it3[0].strip(),
-            filter(
-                lambda it2: len(it2[0].strip()) > 0,
-                filter(lambda it1: len(it1) > 0, csv_reader)
-            )
-        ))
+        if args.tab:
+            csv_reader = csv.reader(fp, delimiter='\t')
+        else:
+            csv_reader = csv.reader(fp, delimiter=',', quotechar='"')
+        if args.input_header is None:
+            input_texts = list(map(
+                lambda it3: system_prompt + it3[0].strip(),
+                filter(
+                    lambda it2: len(it2[0].strip()) > 0,
+                    filter(lambda it1: len(it1) > 0, csv_reader)
+                )
+            ))
+        else:
+            source_rows = list(filter(lambda it: len(it) > 0, csv_reader))
+            if args.input_header not in source_rows[0]:
+                err_msg = f'The column "{args.input_header}" is not found in the header {source_rows[0]}'
+                fredt5_logger.error(err_msg)
+                raise ValueError(err_msg)
+            col_idx = source_rows[0].index(args.input_header)
+            input_texts = list(map(
+                lambda it2: system_prompt + it2[col_idx].strip(),
+                filter(
+                    lambda it1: len(it1[col_idx].strip()) > 0,
+                    source_rows[1:]
+                )
+            ))
     fredt5_logger.info(f'There are {len(input_texts)} input texts. Some of them are:')
     if len(input_texts) > 3:
         selected_texts_to_print = random.sample(population=input_texts, k=3)
