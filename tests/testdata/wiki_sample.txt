@@ -1,3 +1,9 @@
+<doc id="4" url="https://ru.wikipedia.org/wiki?curid=4" title="Базовая статья">
+Базовая статья
+
+
+
+</doc>
 <doc id="21" url="https://ru.wikipedia.org/wiki?curid=21" title="Социология">
 Социология
 
