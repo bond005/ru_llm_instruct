@@ -16,11 +16,14 @@ from nltk import wordpunct_tokenize
 gigachat_logger = logging.getLogger(__name__)
 CENSORSHIP_RESPONSES = [
     ' не хочу ',
+    ' не люблю ',
+    ' не знаю ',
     ' не могу ',
     ' не буду ',
     ' не готов ответить ',
     ' не готов отвечать ',
     ' сменим тему ',
+    ' сменить тему ',
     ' поговорим о другом ',
     ' поговорим о другой ',
     ' другую тему ',
@@ -30,7 +33,7 @@ CENSORSHIP_RESPONSES = [
     ' к сожалению ',
     ' к несчастью ',
     ' не указан в ',
-    ' я не знаю '
+    ' менять тему ',
 ]
 
 
@@ -72,6 +75,16 @@ def document_to_plain_text(document: Dict[str, Union[str, List[Dict[str, Union[s
     return s.strip()
 
 
+def is_censored(text: str) -> bool:
+    normalized_text = ' ' + ' '.join(wordpunct_tokenize(text.strip())).replace('ё', 'е') + ' '
+    censored = False
+    for cur in CENSORSHIP_RESPONSES:
+        if normalized_text.find(cur) >= 0:
+            censored = True
+            break
+    return censored
+
+
 def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]],
                                          other_document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]],
                                          credentials: str) -> Union[Tuple[Tuple[str, str], Tuple[str, str]], None]:
@@ -83,13 +96,7 @@ def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List
     )
     if len(question.strip()) == 0:
         return None
-    normalized_question = ' ' + ' '.join(wordpunct_tokenize(question.strip())).replace('ё', 'е') + ' '
-    censored = False
-    for cur in CENSORSHIP_RESPONSES:
-        if normalized_question.find(cur) >= 0:
-            censored = True
-            break
-    if censored:
+    if is_censored(question):
         return None
     true_answer = generate_answer_with_gigachat(
         prompt=generate_prompt_for_answer_creating(paragraphs_of_section, question),
@@ -97,12 +104,7 @@ def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List
     )
     if len(true_answer.strip()) == 0:
         return None
-    normalized_true_answer = ' ' + ' '.join(wordpunct_tokenize(true_answer.strip())).replace('ё', 'е') + ' '
-    for cur in CENSORSHIP_RESPONSES:
-        if normalized_true_answer.find(cur) >= 0:
-            censored = True
-            break
-    if censored:
+    if is_censored(true_answer):
         return None
     random_val = random.random()
     if random_val < 0.25:
