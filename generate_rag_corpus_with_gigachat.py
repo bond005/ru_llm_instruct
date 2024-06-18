@@ -199,7 +199,9 @@ def main():
                 f'and {len(data_for_testing)} samples for testing.')
     gigachat_logger.info(info_msg)
 
-    if not os.path.isfile(output_testset_fname):
+    if os.path.isfile(output_testset_fname):
+        gigachat_logger.warning(f'The "{output_testset_fname}" exists.')
+    else:
         all_indices = list(range(len(data_for_testing)))
         counter = 1
         with codecs.open(output_testset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
@@ -224,7 +226,9 @@ def main():
         gigachat_logger.info(f'{counter} documents from {len(data_for_testing)} are prepared for the test set.')
     del data_for_testing
 
-    if not os.path.isfile(data_for_validation):
+    if os.path.isfile(output_valset_fname):
+        gigachat_logger.warning(f'The "{output_valset_fname}" exists.')
+    else:
         all_indices = list(range(len(data_for_validation)))
         counter = 1
         with codecs.open(output_valset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
@@ -250,7 +254,9 @@ def main():
             f'{counter} documents from {len(data_for_validation)} are prepared for the validation set.')
     del data_for_validation
 
-    if not os.path.isfile(output_trainset_fname):
+    if os.path.isfile(output_trainset_fname):
+        gigachat_logger.warning(f'The "{output_trainset_fname}" exists.')
+    else:
         all_indices = list(range(len(data_for_training)))
         counter = 1
         with codecs.open(output_trainset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
