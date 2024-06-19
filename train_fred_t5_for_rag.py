@@ -201,8 +201,7 @@ def main():
         model = T5ForConditionalGeneration.from_pretrained(
             pretrained_dir_name,
             attention_type='flash',
-            use_triton=True,
-            torch_dtype=torch.bfloat16
+            use_triton=True
         ).to(device)
     except Exception as err:
         fredt5_rag_logger.error((str(err)))
