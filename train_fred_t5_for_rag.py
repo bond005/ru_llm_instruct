@@ -73,6 +73,8 @@ def main():
                         help='The <LM> tag is not used.')
     parser.add_argument('--penalty', dest='birm_penalty', type=float, required=False, default=10000.0,
                         help='The penalty weight for BIRM.')
+    parser.add_argument('--maxtokens', dest='maxtokens', type=int, required=False, default=None,
+                        help='The maximal number of tokens for the training inputs.')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -134,6 +136,9 @@ def main():
         fredt5_rag_logger.error((str(err)))
         raise
     fredt5_rag_logger.info(f'There are {len(trainset)} samples in the training set.')
+    if args.maxtokens is not None:
+        trainset = trainset.filter(lambda it: len(tokenizer.tokenize(it['input'])) <= args.maxtokens)
+        fredt5_rag_logger.info(f'There are {len(trainset)} samples in the training set after filtering.')
 
     try:
         valset = load_dataset(dataset_path, split='validation')
@@ -261,9 +266,9 @@ def main():
         del results_by_tasks
         scores.append(eval_score)
         fredt5_rag_logger.info(f'Before training: ChrF for task {task} is {round(eval_score, 6)}.')
+        torch.cuda.empty_cache()
     best_score = sum(scores) / len(scores)
     del scores
-    torch.cuda.empty_cache()
     fredt5_rag_logger.info(f'Before training: mean ChrF is {round(best_score, 6)}.')
 
     for epoch in range(1, max_epochs + 1):
@@ -365,9 +370,9 @@ def main():
             del results_by_tasks
             scores.append(eval_score)
             fredt5_rag_logger.info(f'Epoch {epoch}: ChrF for task {task} is {round(eval_score, 6)}.')
+            torch.cuda.empty_cache()
         new_score = sum(scores) / len(scores)
         del scores
-        torch.cuda.empty_cache()
         fredt5_rag_logger.info(f'Epoch {epoch}: mean ChrF is {round(best_score, 6)}.')
         if new_score > best_score:
             best_score = new_score
