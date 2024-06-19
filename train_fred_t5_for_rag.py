@@ -227,7 +227,7 @@ def main():
         fredt5_rag_logger.info(info_msg)
         if max_text_len_ > max_text_len:
             max_text_len = max_text_len_
-    fredt5_rag_logger.info(f'The maximal subwords in the text is {max_text_len}.')
+    fredt5_rag_logger.info(f'The maximal subwords in the generated text is {max_text_len}.')
 
     generation_max_length = 3 + round(1.1 * max_text_len)
     generation_config = GenerationConfig(
