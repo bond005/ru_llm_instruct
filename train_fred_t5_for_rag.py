@@ -301,29 +301,29 @@ def main():
                 x_input_ids_,
                 batch_first=True,
                 padding_value=tokenizer.pad_token_id
-            )
+            ).to(device)
             x_attention_mask = torch.nn.utils.rnn.pad_sequence(
                 x_attention_mask_,
                 batch_first=True,
                 padding_value=0
-            )
+            ).to(device)
             y_input_ids = torch.nn.utils.rnn.pad_sequence(
                 y_input_ids_,
                 batch_first=True,
                 padding_value=-100
-            )
+            ).to(device)
             y_attention_mask = torch.nn.utils.rnn.pad_sequence(
                 y_attention_mask_,
                 batch_first=True,
                 padding_value=0
-            )
+            ).to(device)
             del x_input_ids_, y_input_ids_
             del x_attention_mask_, y_attention_mask_
             res = model(
-                input_ids=x_input_ids.to(device),
-                attention_mask=x_attention_mask.to(device),
-                labels=y_input_ids.to(device),
-                decoder_attention_mask=y_attention_mask.to(device),
+                input_ids=x_input_ids,
+                attention_mask=x_attention_mask,
+                labels=y_input_ids,
+                decoder_attention_mask=y_attention_mask,
                 return_dict=True
             )
             train_logits = res.logits
