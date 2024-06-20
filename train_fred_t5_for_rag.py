@@ -405,7 +405,7 @@ def main():
             gc.collect()
         new_score = sum(scores) / len(scores)
         del scores
-        fredt5_rag_logger.info(f'Epoch {epoch}: mean ChrF is {round(best_score, 6)}.')
+        fredt5_rag_logger.info(f'Epoch {epoch}: mean ChrF is {round(new_score, 6)}.')
         if new_score > best_score:
             best_score = new_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)
