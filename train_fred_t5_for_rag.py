@@ -31,11 +31,12 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
         printed_texts = texts
     for it in printed_texts:
         fredt5_rag_logger.info(' '.join(it.split()).strip())
-    text_lengths = sorted([len(tokenizer.tokenize(it)) for it in tqdm(texts)])
-    info_ = (f'The minimal text length is {text_lengths[0]}, the maximal one is {text_lengths[-1]}, '
-             f'and the median one is {text_lengths[(len(text_lengths) - 1) // 2]}')
+    text_lengths = [len(tokenizer.tokenize(it)) for it in tqdm(texts)]
+    sorted_text_lengths = sorted(text_lengths)
+    info_ = (f'The minimal text length is {sorted_text_lengths[0]}, the maximal one is {sorted_text_lengths[-1]}, '
+             f'and the median one is {sorted_text_lengths[(len(sorted_text_lengths) - 1) // 2]}')
     fredt5_rag_logger.info(info_)
-    random.shuffle(text_lengths)
+    del sorted_text_lengths
     text_lengths = np.array(text_lengths, dtype=np.float32).reshape((len(texts), 1))
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, verbose=True)
     predicted = kmeans.fit_predict(text_lengths)
@@ -161,6 +162,7 @@ def main():
     for idx, val in enumerate(input_clusters):
         input_text = input_texts[idx]
         target_text = target_texts[idx]
+        task = task_types[idx]
         if args.no_lm_tag:
             if input_text.startswith('<LM>'):
                 input_text = input_text[4:]
@@ -170,21 +172,18 @@ def main():
         if not target_text.endswith('</s>'):
             target_text += '</s>'
         if val in data_for_training:
-            if task_types[idx] in data_for_training[val]:
-                data_for_training[val][task_types[idx]].append(
+            if task in data_for_training[val]:
+                data_for_training[val][task].append(
                     (
                         tokenizer.encode(input_text),
                         tokenizer.encode(target_text)
                     )
                 )
             else:
-                data_for_training[val][task_types[idx]] = (
-                    tokenizer.encode(input_text),
-                    tokenizer.encode(target_text)
-                )
+                data_for_training[val][task] = [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
         else:
             data_for_training[val] = {
-                task_types[idx]: [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
+                task: [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
             }
     del input_texts, target_texts, trainset
     if len(data_for_training) < 2:
@@ -241,12 +240,11 @@ def main():
     max_text_len = 0
     n_training_samples = 0
     for env in env_list:
-        max_text_len_ = max([len(it[1]) for it in data_for_training[env]])
-        n_training_samples += len(data_for_training[env])
-        info_msg = 'Environment {0:>2} contains {1} training samples.'.format(env, len(data_for_training[env]))
-        fredt5_rag_logger.info(info_msg)
-        if max_text_len_ > max_text_len:
-            max_text_len = max_text_len_
+        for task in data_for_training[env]:
+            max_text_len_ = max([len(it[1]) for it in data_for_training[env][task]])
+            n_training_samples += len(data_for_training[env][task])
+            if max_text_len_ > max_text_len:
+                max_text_len = max_text_len_
     for task in tasks:
         max_text_len_ = max([len(it[1]) for it in data_for_validation[task]])
         info_msg = f'Task {task} contains {len(data_for_validation[task])} validation samples.'
