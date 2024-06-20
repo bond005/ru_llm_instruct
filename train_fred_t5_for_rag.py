@@ -95,8 +95,8 @@ def main():
         err_msg = f'The mini-batch size {args.batch_size} is wrong!'
         fredt5_rag_logger.error(err_msg)
         raise ValueError(err_msg)
-    if minibatch_size < 4:
-        err_msg = f'The mini-batch size {args.batch_size} is too small!'
+    if minibatch_size < 3:
+        err_msg = f'The mini-batch size {args.batch_size} is too small! Expected 3 or greater, got {minibatch_size}.'
         fredt5_rag_logger.error(err_msg)
         raise ValueError(err_msg)
     fredt5_rag_logger.info(f'Mini-batch size is {minibatch_size}.')
@@ -277,8 +277,8 @@ def main():
         training_nll_val = 0.0
         training_penalty_val = 0.0
         for _ in trange(n_training_batches):
-            if len(env_list) > 2:
-                envs_in_batch_ = random.sample(env_list, 2)
+            if len(env_list) > 3:
+                envs_in_batch_ = random.sample(env_list, 3)
             else:
                 envs_in_batch_ = env_list
             envs_in_batch = []
@@ -349,6 +349,7 @@ def main():
             del x_input_ids, y_input_ids
             del x_attention_mask, y_attention_mask
             del res
+            torch.cuda.empty_cache()
         total_training_loss_val /= float(n_training_batches)
         training_nll_val /= float(n_training_batches)
         training_penalty_val /= float(n_training_batches)
