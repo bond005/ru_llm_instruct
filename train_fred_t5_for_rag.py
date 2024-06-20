@@ -316,8 +316,9 @@ def main():
                 cur_env = random.choice(envs_in_batch_)
                 envs_in_batch.append(cur_env)
                 available_tasks = sorted(list(data_for_training[cur_env].keys()))
-                cur_task = random.choice(available_tasks)
-                del available_tasks
+                task_weights = [len(data_for_training[cur_env][cur_task]) for cur_task in available_tasks]
+                cur_task = random.choices(population=available_tasks, weights=task_weights, k=1)[0]
+                del available_tasks, task_weights
                 sample = random.choice(data_for_training[cur_env][cur_task])
                 x_input_ids_.append(torch.tensor(sample[0], dtype=torch.long))
                 x_attention_mask_.append(torch.tensor([1 for _ in range(len(sample[0]))], dtype=torch.long))
