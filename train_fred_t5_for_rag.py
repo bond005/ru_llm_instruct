@@ -40,7 +40,7 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, verbose=True)
     predicted = kmeans.fit_predict(text_lengths)
     centers_of_clusters = {}
-    for cluster_idx in range(kmeans.cluster_centers_):
+    for cluster_idx in range(kmeans.cluster_centers_.shape[0]):
         centers_of_clusters[cluster_idx] = float(kmeans.cluster_centers_[cluster_idx][0])
     return [int(predicted[idx]) for idx in range(len(texts))], centers_of_clusters
 
