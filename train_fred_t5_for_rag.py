@@ -1,9 +1,10 @@
 from argparse import ArgumentParser
+import gc
 import logging
 import os
 import random
 import sys
-from typing import List
+from typing import Dict, List, Tuple
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -21,7 +22,8 @@ from instructions.instructions import evaluate_any_task
 fredt5_rag_logger = logging.getLogger(__name__)
 
 
-def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer, n_clusters: int) -> List[int]:
+def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
+                            n_clusters: int) -> Tuple[List[int], Dict[int, float]]:
     fredt5_rag_logger.info(f'Number of input texts is {len(texts)}. Some of them are:')
     if len(texts) > 5:
         printed_texts = random.sample(texts, 5)
@@ -37,7 +39,10 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer, n_cluste
     text_lengths = np.array(text_lengths, dtype=np.float32).reshape((len(texts), 1))
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, verbose=True)
     predicted = kmeans.fit_predict(text_lengths)
-    return [int(predicted[idx]) for idx in range(len(texts))]
+    centers_of_clusters = {}
+    for cluster_idx in range(kmeans.cluster_centers_):
+        centers_of_clusters[cluster_idx] = float(kmeans.cluster_centers_[cluster_idx][0])
+    return [int(predicted[idx]) for idx in range(len(texts))], centers_of_clusters
 
 
 def main():
@@ -149,7 +154,8 @@ def main():
 
     input_texts = [str(it) for it in trainset['input']]
     target_texts = [str(it) for it in trainset['target']]
-    input_clusters = calculate_text_clusters(input_texts, tokenizer, n_clusters=args.environments)
+    task_types = [str(it) for it in trainset['task_type']]
+    input_clusters, centers_or_clusters = calculate_text_clusters(input_texts, tokenizer, n_clusters=args.environments)
     fredt5_rag_logger.info(f'Set of environments is {set(input_clusters)}.')
     data_for_training = dict()
     for idx, val in enumerate(input_clusters):
@@ -164,9 +170,22 @@ def main():
         if not target_text.endswith('</s>'):
             target_text += '</s>'
         if val in data_for_training:
-            data_for_training[val].append((tokenizer.encode(input_text), tokenizer.encode(target_text)))
+            if task_types[idx] in data_for_training[val]:
+                data_for_training[val][task_types[idx]].append(
+                    (
+                        tokenizer.encode(input_text),
+                        tokenizer.encode(target_text)
+                    )
+                )
+            else:
+                data_for_training[val][task_types[idx]] = (
+                    tokenizer.encode(input_text),
+                    tokenizer.encode(target_text)
+                )
         else:
-            data_for_training[val] = [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
+            data_for_training[val] = {
+                task_types[idx]: [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
+            }
     del input_texts, target_texts, trainset
     if len(data_for_training) < 2:
         err_msg = (f'The number of training environments is too small! '
@@ -174,6 +193,15 @@ def main():
         fredt5_rag_logger.error(err_msg)
         raise ValueError(err_msg)
     fredt5_rag_logger.info(f'There are {len(data_for_training)} training environments.')
+    env_list = sorted(list(data_for_training.keys()))
+    for env in env_list:
+        info_msg = (f'Training environment {env}: mean length is {round(centers_or_clusters[env], 2)}, '
+                    f'number of task types is {len(data_for_training[env])}.')
+        fredt5_rag_logger.info(info_msg)
+        for task in sorted(list(data_for_training[env])):
+            info_msg = (f'Training environment {env}, task {task}: '
+                        f'there are {len(data_for_training[env][task])} training samples.')
+            fredt5_rag_logger.info(info_msg)
 
     input_texts = [str(it) for it in valset['input']]
     target_texts = [str(it) for it in valset['target']]
@@ -212,7 +240,6 @@ def main():
     tokenizer.save_pretrained(finetuned_dir_name)
     max_text_len = 0
     n_training_samples = 0
-    env_list = sorted(list(data_for_training.keys()))
     for env in env_list:
         max_text_len_ = max([len(it[1]) for it in data_for_training[env]])
         n_training_samples += len(data_for_training[env])
@@ -248,7 +275,7 @@ def main():
         lr=args.learning_rate,
         clip_threshold=1.0
     )
-    loss_fct = torch.nn.CrossEntropyLoss().to(device)
+    loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100).to(device)
     max_epochs = 200
 
     n_training_batches = int(np.ceil(n_training_samples / minibatch_size))
@@ -266,6 +293,7 @@ def main():
         scores.append(eval_score)
         fredt5_rag_logger.info(f'Before training: ChrF for task {task} is {round(eval_score, 6)}.')
         torch.cuda.empty_cache()
+        gc.collect()
     best_score = sum(scores) / len(scores)
     del scores
     fredt5_rag_logger.info(f'Before training: mean ChrF is {round(best_score, 6)}.')
@@ -289,11 +317,13 @@ def main():
             for _ in range(minibatch_size):
                 cur_env = random.choice(envs_in_batch_)
                 envs_in_batch.append(cur_env)
-                sample = random.choice(data_for_training[cur_env])
+                cur_task = random.choice(data_for_training[cur_env])
+                sample = random.choice(data_for_training[cur_env][cur_task])
                 x_input_ids_.append(torch.tensor(sample[0], dtype=torch.long))
                 x_attention_mask_.append(torch.tensor([1 for _ in range(len(sample[0]))], dtype=torch.long))
                 y_input_ids_.append(torch.tensor(sample[1], dtype=torch.long))
                 y_attention_mask_.append(torch.tensor([1 for _ in range(len(sample[1]))], dtype=torch.long))
+                del sample
             envs_in_batch_pt = torch.tensor(envs_in_batch, dtype=torch.long).to(device)
             del envs_in_batch_
             x_input_ids = torch.nn.utils.rnn.pad_sequence(
@@ -357,6 +387,7 @@ def main():
                     f'training cross-entropy is {training_nll_val}, invariance penalty is {training_penalty_val}.')
         fredt5_rag_logger.info(info_msg)
         model.eval()
+        gc.collect()
         torch.cuda.empty_cache()
         scores = []
         for task in tasks:
@@ -371,6 +402,7 @@ def main():
             scores.append(eval_score)
             fredt5_rag_logger.info(f'Epoch {epoch}: ChrF for task {task} is {round(eval_score, 6)}.')
             torch.cuda.empty_cache()
+            gc.collect()
         new_score = sum(scores) / len(scores)
         del scores
         fredt5_rag_logger.info(f'Epoch {epoch}: mean ChrF is {round(best_score, 6)}.')
