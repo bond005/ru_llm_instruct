@@ -46,6 +46,57 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     return [int(predicted[idx]) for idx in range(len(texts))], centers_of_clusters
 
 
+def generate_samples_for_minibatch(data_for_training: Dict[int, Dict[str, List[Tuple[List[int], List[int]]]]],
+                                   minibatch_size: int) -> Tuple[List[Tuple[List[int], List[int]]], List[int]]:
+    env_list = sorted(list(data_for_training.keys()))
+    if len(env_list) > 3:
+        envs_in_batch = random.sample(env_list, 3)
+    else:
+        envs_in_batch = env_list
+    del env_list
+    n_added_samples = 0
+    samples_for_batch = []
+    environments_for_batch = []
+    for idx, val in enumerate(envs_in_batch):
+        n_samples_from_env = (minibatch_size - n_added_samples) // (len(envs_in_batch) - idx)
+        available_tasks = sorted(list(data_for_training[val].keys()))
+        if len(available_tasks) > 1:
+            task_weights = np.array(
+                [len(data_for_training[val][cur_task]) for cur_task in available_tasks],
+                dtype=np.float64
+            )
+            task_weights /= np.sum(task_weights)
+            if len(available_tasks) > 2:
+                max_probability = 0.5
+            else:
+                max_probability = 0.7
+            stopped = True
+            for x in range(len(available_tasks)):
+                if task_weights[x] > max_probability:
+                    task_weights[x] = max_probability
+                    stopped = False
+            while not stopped:
+                stopped = True
+                task_weights /= np.sum(task_weights)
+                for x in range(len(available_tasks)):
+                    if task_weights[x] > max_probability:
+                        task_weights[x] = max_probability
+                        stopped = False
+            task_weights = task_weights.tolist()
+            selected_tasks = [random.choices(population=available_tasks, weights=task_weights, k=1)[0]
+                              for _ in range(n_samples_from_env)]
+            del task_weights
+        else:
+            selected_tasks = [available_tasks[0] for _ in range(n_samples_from_env)]
+        for cur_task in selected_tasks:
+            samples_for_batch.append(random.choice(data_for_training[val][cur_task]))
+            environments_for_batch.append(val)
+        n_added_samples += n_samples_from_env
+        del available_tasks
+    del envs_in_batch
+    return samples_for_batch, environments_for_batch
+
+
 def main():
     random.seed(42)
     torch.manual_seed(42)
@@ -81,6 +132,8 @@ def main():
                         help='The penalty weight for BIRM.')
     parser.add_argument('--maxtokens', dest='maxtokens', type=int, required=False, default=None,
                         help='The maximal number of tokens for the training inputs.')
+    parser.add_argument('--iters', dest='iters_per_epoch', type=int, required=False, default=None,
+                        help='The iterations per epoch.')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -95,6 +148,12 @@ def main():
         raise IOError(err_msg)
     if not os.path.isdir(finetuned_dir_name):
         os.mkdir(finetuned_dir_name)
+
+    if args.iters_per_epoch is not None:
+        if args.iters_per_epoch < 2:
+            err_msg = f'The iterations per epoch is too small. Expected 2 or greater, got {args.iters_per_epoch}.'
+            fredt5_rag_logger.error(err_msg)
+            raise ValueError(err_msg)
 
     minibatch_size = args.batch_size
     if minibatch_size <= 0:
@@ -277,6 +336,10 @@ def main():
     max_epochs = 200
 
     n_training_batches = int(np.ceil(n_training_samples / minibatch_size))
+    max_iters = max_epochs * n_training_batches
+    if args.iters_per_epoch is not None:
+        n_training_batches = args.iters_per_epoch
+        max_epochs = max(max_iters // n_training_batches, 3)
     fredt5_rag_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
     scores = []
@@ -303,30 +366,18 @@ def main():
         training_nll_val = 0.0
         training_penalty_val = 0.0
         for _ in trange(n_training_batches):
-            if len(env_list) > 3:
-                envs_in_batch_ = random.sample(env_list, 3)
-            else:
-                envs_in_batch_ = env_list
-            envs_in_batch = []
+            samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
             x_input_ids_ = []
             x_attention_mask_ = []
             y_input_ids_ = []
             y_attention_mask_ = []
-            for _ in range(minibatch_size):
-                cur_env = random.choice(envs_in_batch_)
-                envs_in_batch.append(cur_env)
-                available_tasks = sorted(list(data_for_training[cur_env].keys()))
-                task_weights = [len(data_for_training[cur_env][cur_task]) for cur_task in available_tasks]
-                cur_task = random.choices(population=available_tasks, weights=task_weights, k=1)[0]
-                del available_tasks, task_weights
-                sample = random.choice(data_for_training[cur_env][cur_task])
-                x_input_ids_.append(torch.tensor(sample[0], dtype=torch.long))
-                x_attention_mask_.append(torch.tensor([1 for _ in range(len(sample[0]))], dtype=torch.long))
-                y_input_ids_.append(torch.tensor(sample[1], dtype=torch.long))
-                y_attention_mask_.append(torch.tensor([1 for _ in range(len(sample[1]))], dtype=torch.long))
-                del sample
+            for input_sequence, output_sequence in samples_in_batch:
+                x_input_ids_.append(torch.tensor(input_sequence, dtype=torch.long))
+                x_attention_mask_.append(torch.tensor([1 for _ in range(len(input_sequence))], dtype=torch.long))
+                y_input_ids_.append(torch.tensor(output_sequence, dtype=torch.long))
+                y_attention_mask_.append(torch.tensor([1 for _ in range(len(output_sequence))], dtype=torch.long))
+            del samples_in_batch
             envs_in_batch_pt = torch.tensor(envs_in_batch, dtype=torch.long).to(device)
-            del envs_in_batch_
             x_input_ids = torch.nn.utils.rnn.pad_sequence(
                 x_input_ids_,
                 batch_first=True,
