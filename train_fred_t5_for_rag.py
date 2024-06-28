@@ -9,17 +9,30 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 from datasets import load_dataset
+from nltk import wordpunct_tokenize
 import numpy as np
 from sklearn.cluster import KMeans
 from tqdm import tqdm, trange
 from transformers import GPT2Tokenizer, Adafactor, GenerationConfig
-from turbot5 import T5ForConditionalGeneration, T5Config
+from turbot5 import T5ForConditionalGeneration
 import torch
 
 from instructions.instructions import evaluate_any_task
 
 
 fredt5_rag_logger = logging.getLogger(__name__)
+NEGATIVE_ANSWER_1 = 'к сожалению я не могу ответить на ваш вопрос'
+NEGATIVE_ANSWER_2 = 'в этом тексте нет именованных сущностей такого типа'
+
+
+def is_positive_answer(answer: str) -> bool:
+    words_of_answer = set(filter(
+        lambda it2: it2.isalnum(),
+        map(lambda it1: it1.strip(), wordpunct_tokenize(answer.lower()))
+    ))
+    if words_of_answer == set(NEGATIVE_ANSWER_1.split()):
+        return False
+    return words_of_answer != set(NEGATIVE_ANSWER_2.split())
 
 
 def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
@@ -46,7 +59,7 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     return [int(predicted[idx]) for idx in range(len(texts))], centers_of_clusters
 
 
-def generate_samples_for_minibatch(data_for_training: Dict[int, Dict[str, List[Tuple[List[int], List[int]]]]],
+def generate_samples_for_minibatch(data_for_training: Dict[int, Dict[str, List[Tuple[List[int], List[int], bool]]]],
                                    minibatch_size: int) -> Tuple[List[Tuple[List[int], List[int]]], List[int]]:
     env_list = sorted(list(data_for_training.keys()))
     if len(env_list) > 3:
@@ -89,8 +102,20 @@ def generate_samples_for_minibatch(data_for_training: Dict[int, Dict[str, List[T
         else:
             selected_tasks = [available_tasks[0] for _ in range(n_samples_from_env)]
         for cur_task in selected_tasks:
-            samples_for_batch.append(random.choice(data_for_training[val][cur_task]))
+            sample_weights = []
+            for cur_sample in data_for_training[val][cur_task]:
+                if cur_sample[2]:
+                    sample_weights.append(1.00)
+                else:
+                    sample_weights.append(0.25)
+            selected_sample = random.choices(
+                population=data_for_training[val][cur_task],
+                weights=sample_weights,
+                k=1
+            )[0]
+            samples_for_batch.append((selected_sample[0], selected_sample[1]))
             environments_for_batch.append(val)
+            del sample_weights, selected_sample
         n_added_samples += n_samples_from_env
         del available_tasks
     del envs_in_batch
@@ -221,6 +246,7 @@ def main():
     for idx, val in enumerate(input_clusters):
         input_text = input_texts[idx]
         target_text = target_texts[idx]
+        is_positive = is_positive_answer(target_text)
         task = task_types[idx]
         if args.no_lm_tag:
             if input_text.startswith('<LM>'):
@@ -235,14 +261,23 @@ def main():
                 data_for_training[val][task].append(
                     (
                         tokenizer.encode(input_text),
-                        tokenizer.encode(target_text)
+                        tokenizer.encode(target_text),
+                        is_positive
                     )
                 )
             else:
-                data_for_training[val][task] = [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
+                data_for_training[val][task] = [(
+                    tokenizer.encode(input_text),
+                    tokenizer.encode(target_text),
+                    is_positive
+                )]
         else:
             data_for_training[val] = {
-                task: [(tokenizer.encode(input_text), tokenizer.encode(target_text))]
+                task: [(
+                    tokenizer.encode(input_text),
+                    tokenizer.encode(target_text),
+                    is_positive
+                )]
             }
     del input_texts, target_texts, trainset
     if len(data_for_training) < 2:
@@ -257,8 +292,14 @@ def main():
                     f'number of task types is {len(data_for_training[env])}.')
         fredt5_rag_logger.info(info_msg)
         for task in sorted(list(data_for_training[env])):
-            info_msg = (f'Training environment {env}, task {task}: '
-                        f'there are {len(data_for_training[env][task])} training samples.')
+            n_positive = sum(map(lambda it: 1 if it[2] else 0, data_for_training[env][task]))
+            n_total = len(data_for_training[env][task])
+            if n_positive < n_total:
+                info_msg = (f'Training environment {env}, task {task}: '
+                            f'there are {n_total} training samples ({n_positive} of them are positive).')
+            else:
+                info_msg = (f'Training environment {env}, task {task}: '
+                            f'there are {n_total} training samples (all of them are positive).')
             fredt5_rag_logger.info(info_msg)
 
     input_texts = [str(it) for it in valset['input']]

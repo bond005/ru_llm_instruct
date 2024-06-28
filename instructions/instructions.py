@@ -1,7 +1,6 @@
 import math
 from multiprocessing import Pool
 import os
-import random
 from typing import Dict, List, Tuple
 
 from nltk.translate.chrf_score import sentence_chrf
@@ -238,14 +237,16 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
     del arguments
     n_total_word_dist = 0
     n_total_words = 0
-    for cur_dist, cur_word_number in res:
+    for idx, (cur_dist, cur_word_number) in enumerate(res):
         n_total_word_dist += cur_dist
         n_total_words += cur_word_number
+        printed_results[idx]['SCORE'] = max(1.0 - cur_dist / max(float(cur_word_number), 1.0), 0.0)
     if n_total_words > 0:
         wer = n_total_word_dist / float(n_total_words)
     else:
         wer = 0.0
     del res
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return 1.0 - wer, printed_results
 
 
@@ -283,14 +284,16 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
     del arguments
     n_total_paragraph_dist = 0
     n_total_paragraphs = 0
-    for cur_dist, cur_paragraph_number in res:
+    for idx, (cur_dist, cur_paragraph_number) in enumerate(res):
         n_total_paragraph_dist += cur_dist
         n_total_paragraphs += cur_paragraph_number
+        printed_results[idx]['SCORE'] = max(1.0 - cur_dist / max(float(cur_paragraph_number), 1.0), 0.0)
     if n_total_paragraphs > 0:
         per = n_total_paragraph_dist / float(n_total_paragraphs)
     else:
         per = 0.0
     del res
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return 1.0 - per, printed_results
 
 
@@ -352,8 +355,16 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
     f1 = ner_f1_score(y_true, y_pred)
-    printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
-                       for it in printed_results]
+    printed_results = [
+        {
+            'INPUT': val['INPUT'],
+            'PREDICTED': f'{val["PREDICTED"]}',
+            'TRUE': f'{val["TRUE"]}',
+            'SCORE': ner_f1_score(y_true[idx:(idx + 1)], y_pred[idx:(idx + 1)])
+        }
+        for idx, val in enumerate(printed_results)
+    ]
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return f1, printed_results
 
 
@@ -413,8 +424,20 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
             })
     f1 = f1_score(da_true, da_pred, average='binary')
     f1 += f1_score(net_true, net_pred, average='binary')
-    printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
-                       for it in printed_results]
+    nlp = spacy.load('ru_core_news_sm')
+    printed_results = [
+        {
+            'INPUT': it['INPUT'],
+            'PREDICTED': f'{it["PREDICTED"]}',
+            'TRUE': f'{it["TRUE"]}',
+            'SCORE': sentence_chrf(
+                reference=normalize_text(it['TRUE'], nlp),
+                hypothesis=normalize_text(it['PREDICTED'], nlp)
+            )
+        }
+        for it in printed_results
+    ]
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return f1 / 2.0, printed_results
 
 
@@ -448,8 +471,6 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         err_msg = f'The predicted texts number does not correspond to the validation data size! ' \
                   f'{len(candidates)} != {len(data_for_validation)}'
         raise ValueError(err_msg)
-    if len(printed_results) > 5:
-        printed_results = random.sample(printed_results, k=5)
     nlp = spacy.load('ru_core_news_sm')
     scores = list(map(
         lambda it: sentence_chrf(
@@ -462,7 +483,10 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         err_msg = f'The true answers do not correspond to the CHRF scores! {len(references)} != {len(scores)}.'
         raise ValueError(err_msg)
     f1_mean = float(np.mean(scores))
+    for idx in range(len(scores)):
+        printed_results[idx]['SCORE'] = scores[idx]
     del scores, references, candidates, nlp
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return f1_mean, printed_results
 
 
