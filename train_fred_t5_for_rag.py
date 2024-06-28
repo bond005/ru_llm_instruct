@@ -227,7 +227,9 @@ def main():
         raise
     fredt5_rag_logger.info(f'There are {len(trainset)} samples in the training set.')
     if args.maxtokens is not None:
-        trainset = trainset.filter(lambda it: len(tokenizer.tokenize(it['input'])) <= args.maxtokens)
+        trainset = trainset.filter(
+            lambda it: (len(tokenizer.tokenize(it['input'])) + len(tokenizer.tokenize(it['target']))) <= args.maxtokens
+        )
         fredt5_rag_logger.info(f'There are {len(trainset)} samples in the training set after filtering.')
 
     try:

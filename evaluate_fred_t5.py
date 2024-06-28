@@ -218,7 +218,8 @@ def main():
             new_item = {
                 'INPUT': process_multiline(old_item['INPUT']),
                 'PREDICTED': process_multiline(old_item['PREDICTED']),
-                'TRUE': process_multiline(old_item['TRUE'])
+                'TRUE': process_multiline(old_item['TRUE']),
+                'SCORE': old_item['SCORE']
             }
             printed_results_for_json.append(new_item)
         del printed_results
