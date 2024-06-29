@@ -387,6 +387,35 @@ def main():
         max_epochs = max(max_iters // n_training_batches, 3)
     fredt5_rag_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
+    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+    fredt5_rag_logger.info(f'Random mini-batch 1 is:')
+    for idx in range(minibatch_size):
+        fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
+        fredt5_rag_logger.info(f'Environment: {envs_in_batch[idx]}')
+        fredt5_rag_logger.info('Input:  ' + tokenizer.decode(samples_in_batch[idx][0]))
+        fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
+    del samples_in_batch, envs_in_batch
+
+    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+    fredt5_rag_logger.info(f'Random mini-batch 2 is:')
+    for idx in range(minibatch_size):
+        fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
+        fredt5_rag_logger.info(f'Environment: {envs_in_batch[idx]}')
+        fredt5_rag_logger.info('Input:  ' + tokenizer.decode(samples_in_batch[idx][0]))
+        fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
+    del samples_in_batch, envs_in_batch
+
+    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+    fredt5_rag_logger.info(f'Random mini-batch 3 is:')
+    for idx in range(minibatch_size):
+        fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
+        fredt5_rag_logger.info(f'Environment: {envs_in_batch[idx]}')
+        fredt5_rag_logger.info('Input:  ' + tokenizer.decode(samples_in_batch[idx][0]))
+        fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
+    del samples_in_batch, envs_in_batch
+
+    gc.collect()
+
     if args.no_pre_eval:
         best_score = None
     else:
