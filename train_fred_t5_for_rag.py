@@ -159,6 +159,8 @@ def main():
                         help='The maximal number of tokens for the training inputs.')
     parser.add_argument('--iters', dest='iters_per_epoch', type=int, required=False, default=None,
                         help='The iterations per epoch.')
+    parser.add_argument('--no_pre_eval', dest='no_pre_eval', action='store_true', required=False,
+                        help='The preliminary evaluation (before training) is not realized.')
     args = parser.parse_args()
 
     finetuned_dir_name = os.path.normpath(args.output_name)
@@ -385,22 +387,26 @@ def main():
         max_epochs = max(max_iters // n_training_batches, 3)
     fredt5_rag_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
-    scores = []
-    for task in tasks:
-        try:
-            eval_score, results_by_tasks = evaluate_any_task(data_for_validation[task],
-                                                             tokenizer, generation_config, model, eval_minibatch_size)
-        except Exception as err:
-            fredt5_rag_logger.error(str(err))
-            raise
-        del results_by_tasks
-        scores.append(eval_score)
-        fredt5_rag_logger.info(f'Before training: ChrF for task {task} is {round(eval_score, 6)}.')
-        torch.cuda.empty_cache()
-        gc.collect()
-    best_score = sum(scores) / len(scores)
-    del scores
-    fredt5_rag_logger.info(f'Before training: mean ChrF is {round(best_score, 6)}.')
+    if args.no_pre_eval:
+        best_score = None
+    else:
+        scores = []
+        for task in tasks:
+            try:
+                eval_score, results_by_tasks = evaluate_any_task(data_for_validation[task],
+                                                                 tokenizer, generation_config, model,
+                                                                 eval_minibatch_size)
+            except Exception as err:
+                fredt5_rag_logger.error(str(err))
+                raise
+            del results_by_tasks
+            scores.append(eval_score)
+            fredt5_rag_logger.info(f'Before training: ChrF for task {task} is {round(eval_score, 6)}.')
+            torch.cuda.empty_cache()
+            gc.collect()
+        best_score = sum(scores) / len(scores)
+        del scores
+        fredt5_rag_logger.info(f'Before training: mean ChrF is {round(best_score, 6)}.')
 
     for epoch in range(1, max_epochs + 1):
         fredt5_rag_logger.info(f'Epoch {epoch} is started.')
@@ -501,7 +507,11 @@ def main():
         new_score = sum(scores) / len(scores)
         del scores
         fredt5_rag_logger.info(f'Epoch {epoch}: mean ChrF is {round(new_score, 6)}.')
-        if new_score > best_score:
+        if best_score is None:
+            updated = True
+        else:
+            updated = (new_score > best_score)
+        if updated:
             best_score = new_score
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=False)
             model.save_pretrained(save_directory=finetuned_dir_name, safe_serialization=True)
