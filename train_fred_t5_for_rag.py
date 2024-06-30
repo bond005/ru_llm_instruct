@@ -149,6 +149,8 @@ def main():
                         help='The mini-batch size for FRED-T5 evaluation.')
     parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=3e-4,
                         help='The learning rate.')
+    parser.add_argument('--clip', dest='gradient_clipping', type=float, required=False, default=None,
+                        help='The gradient clipping by norm.')
     parser.add_argument('--envs', dest='environments', type=int, required=False, default=10,
                         help='The number of environments for the invariant risk minimization.')
     parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
@@ -181,6 +183,13 @@ def main():
             err_msg = f'The iterations per epoch is too small. Expected 2 or greater, got {args.iters_per_epoch}.'
             fredt5_rag_logger.error(err_msg)
             raise ValueError(err_msg)
+
+    if args.gradient_clipping is not None:
+        if args.gradient_clipping <= 1e-4:
+            err_msg = f'The gradient clipping by norm = {args.gradient_clipping} is too small.'
+            fredt5_rag_logger.error(err_msg)
+            raise ValueError(err_msg)
+        fredt5_rag_logger.info(f'Gradient clipping with {args.gradient_clipping} is used.')
 
     minibatch_size = args.batch_size
     if minibatch_size <= 0:
@@ -503,6 +512,8 @@ def main():
             training_penalty_val += float(train_penalty.detach().cpu())
             total_training_loss_val += float(loss.detach().cpu())
             loss.backward()
+            if args.gradient_clipping is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clipping)
             optimizer.step()
             optimizer.zero_grad()
             del envs_in_batch, envs_in_batch_pt
