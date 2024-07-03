@@ -59,7 +59,7 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     return [int(predicted[idx]) for idx in range(len(texts))], centers_of_clusters
 
 
-def generate_samples_for_minibatch(data_for_training: Dict[int, Dict[str, List[Tuple[List[int], List[int], bool]]]],
+def generate_samples_for_minibatch(data_for_training: Dict[int, List[Tuple[List[int], List[int], bool]]],
                                    minibatch_size: int) -> Tuple[List[Tuple[List[int], List[int]]], List[int]]:
     env_list = sorted(list(data_for_training.keys()))
     if len(env_list) > 3:
@@ -72,52 +72,22 @@ def generate_samples_for_minibatch(data_for_training: Dict[int, Dict[str, List[T
     environments_for_batch = []
     for idx, val in enumerate(envs_in_batch):
         n_samples_from_env = (minibatch_size - n_added_samples) // (len(envs_in_batch) - idx)
-        available_tasks = sorted(list(data_for_training[val].keys()))
-        if len(available_tasks) > 1:
-            task_weights = np.array(
-                [len(data_for_training[val][cur_task]) for cur_task in available_tasks],
-                dtype=np.float64
-            )
-            task_weights /= np.sum(task_weights)
-            if len(available_tasks) > 2:
-                max_probability = 0.5
+        sample_weights = []
+        for cur_sample in data_for_training[val]:
+            if cur_sample[2]:
+                sample_weights.append(1.00)
             else:
-                max_probability = 0.7
-            stopped = True
-            for x in range(len(available_tasks)):
-                if task_weights[x] > max_probability:
-                    task_weights[x] = max_probability
-                    stopped = False
-            while not stopped:
-                stopped = True
-                task_weights /= np.sum(task_weights)
-                for x in range(len(available_tasks)):
-                    if task_weights[x] > max_probability:
-                        task_weights[x] = max_probability
-                        stopped = False
-            task_weights = task_weights.tolist()
-            selected_tasks = [random.choices(population=available_tasks, weights=task_weights, k=1)[0]
-                              for _ in range(n_samples_from_env)]
-            del task_weights
-        else:
-            selected_tasks = [available_tasks[0] for _ in range(n_samples_from_env)]
-        for cur_task in selected_tasks:
-            sample_weights = []
-            for cur_sample in data_for_training[val][cur_task]:
-                if cur_sample[2]:
-                    sample_weights.append(1.00)
-                else:
-                    sample_weights.append(0.25)
-            selected_sample = random.choices(
-                population=data_for_training[val][cur_task],
-                weights=sample_weights,
-                k=1
-            )[0]
+                sample_weights.append(0.05)
+        selected_samples = random.choices(
+            population=data_for_training[val],
+            weights=sample_weights,
+            k=n_samples_from_env
+        )
+        for selected_sample in selected_samples:
             samples_for_batch.append((selected_sample[0], selected_sample[1]))
             environments_for_batch.append(val)
-            del sample_weights, selected_sample
+        del sample_weights, selected_samples
         n_added_samples += n_samples_from_env
-        del available_tasks
     del envs_in_batch
     return samples_for_batch, environments_for_batch
 
@@ -366,6 +336,14 @@ def main():
             max_text_len = max_text_len_
     fredt5_rag_logger.info(f'The maximal subwords in the generated text is {max_text_len}.')
 
+    data_for_training_ = dict()
+    for env in env_list:
+        data_for_training_[env] = []
+        for task in data_for_training[env]:
+            data_for_training_[env] += data_for_training[env][task]
+    del data_for_training
+    gc.collect()
+
     generation_max_length = 3 + round(1.1 * max_text_len)
     generation_config = GenerationConfig(
         top_k=10,
@@ -396,7 +374,7 @@ def main():
         max_epochs = max(max_iters // n_training_batches, 3)
     fredt5_rag_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
-    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
     fredt5_rag_logger.info(f'Random mini-batch 1 is:')
     for idx in range(minibatch_size):
         fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
@@ -405,7 +383,7 @@ def main():
         fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
     del samples_in_batch, envs_in_batch
 
-    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
     fredt5_rag_logger.info(f'Random mini-batch 2 is:')
     for idx in range(minibatch_size):
         fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
@@ -414,7 +392,7 @@ def main():
         fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
     del samples_in_batch, envs_in_batch
 
-    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
     fredt5_rag_logger.info(f'Random mini-batch 3 is:')
     for idx in range(minibatch_size):
         fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
@@ -453,7 +431,7 @@ def main():
         training_nll_val = 0.0
         training_penalty_val = 0.0
         for _ in trange(n_training_batches):
-            samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training, minibatch_size)
+            samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
             x_input_ids_ = []
             x_attention_mask_ = []
             y_input_ids_ = []

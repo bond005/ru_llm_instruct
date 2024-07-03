@@ -43,8 +43,6 @@ def article_to_tokens(article: List[Dict[str, Union[str, List[str]]]], tokenizer
 
 
 def main():
-    random.seed(42)
-
     parser = ArgumentParser()
     parser.add_argument('-i', '--input', dest='input_name', type=str, required=True,
                         help='The input path to the parsed Wikipedia.')
@@ -58,7 +56,10 @@ def main():
                         help='The maximal number of tokens per article.')
     parser.add_argument('--mintokens', dest='mintokens', type=int, required=False, default=1_000,
                         help='The minimal number of tokens per article.')
+    parser.add_argument('-r', '--random', dest='random_seed', type=int, required=False, default=42,
+                        help='The random seed.')
     args = parser.parse_args()
+    random.seed(args.random_seed)
 
     wiki_dir = os.path.normpath(args.input_name)
     if not os.path.isdir(wiki_dir):

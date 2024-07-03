@@ -87,7 +87,8 @@ def is_censored(text: str) -> bool:
 
 def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]],
                                          other_document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]],
-                                         credentials: str) -> Union[Tuple[Tuple[str, str], Tuple[str, str]], None]:
+                                         credentials: str, full_document: bool = True) -> (
+        Union)[Tuple[Tuple[str, str], Tuple[str, str]], None]:
     selected_section = random.choice(cur_document['document'])
     paragraphs_of_section = ' '.join(selected_section['section_body'])
     question = generate_answer_with_gigachat(
@@ -107,42 +108,46 @@ def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List
     if is_censored(true_answer):
         return None
     random_val = random.random()
+    if full_document:
+        cur_context = cur_document
+        other_context = other_document
+    else:
+        cur_context = {'document': [selected_section]}
+        other_context = {'document': [random.choice(other_document['document'])]}
     if random_val < 0.25:
-        positive_input_prompt = f'{question} {document_to_plain_text(cur_document)}'
+        positive_input_prompt = f'{question} {document_to_plain_text(cur_context)}'
     elif random_val < 0.5:
         if random.random() > 0.5:
-            positive_input_prompt = f'{question}\n{document_to_plain_text(cur_document)}'
+            positive_input_prompt = f'{question}\n{document_to_plain_text(cur_context)}'
         else:
-            positive_input_prompt = f'{question}\n\n{document_to_plain_text(cur_document)}'
+            positive_input_prompt = f'{question}\n\n{document_to_plain_text(cur_context)}'
     elif random_val < 0.75:
-        positive_input_prompt = f'{document_to_plain_text(cur_document)} {question}'
+        positive_input_prompt = f'{document_to_plain_text(cur_context)} {question}'
     else:
         if random.random() > 0.5:
-            positive_input_prompt = f'{document_to_plain_text(cur_document)}\n{question}'
+            positive_input_prompt = f'{document_to_plain_text(cur_context)}\n{question}'
         else:
-            positive_input_prompt = f'{document_to_plain_text(cur_document)}\n\n{question}'
+            positive_input_prompt = f'{document_to_plain_text(cur_context)}\n\n{question}'
     random_val = random.random()
     if random_val < 0.25:
-        negative_input_prompt = f'{question} {document_to_plain_text(other_document)}'
+        negative_input_prompt = f'{question} {document_to_plain_text(other_context)}'
     elif random_val < 0.5:
         if random.random() > 0.5:
-            negative_input_prompt = f'{question}\n{document_to_plain_text(other_document)}'
+            negative_input_prompt = f'{question}\n{document_to_plain_text(other_context)}'
         else:
-            negative_input_prompt = f'{question}\n\n{document_to_plain_text(other_document)}'
+            negative_input_prompt = f'{question}\n\n{document_to_plain_text(other_context)}'
     elif random_val < 0.75:
-        negative_input_prompt = f'{document_to_plain_text(other_document)} {question}'
+        negative_input_prompt = f'{document_to_plain_text(other_context)} {question}'
     else:
         if random.random() > 0.5:
-            negative_input_prompt = f'{document_to_plain_text(other_document)}\n{question}'
+            negative_input_prompt = f'{document_to_plain_text(other_context)}\n{question}'
         else:
-            negative_input_prompt = f'{document_to_plain_text(other_document)}\n\n{question}'
+            negative_input_prompt = f'{document_to_plain_text(other_context)}\n\n{question}'
     return ((positive_input_prompt, true_answer),
-            (negative_input_prompt, 'В документе не содержится ответа на ваш вопрос.'))
+            (negative_input_prompt, 'К сожалению, я не могу ответить на ваш вопрос.'))
 
 
 def main():
-    random.seed(42)
-
     parser = ArgumentParser()
     parser.add_argument('-i', '--input', dest='input_name', type=str, required=True,
                         help='The input JSON with parsed Wiki.')
@@ -150,7 +155,13 @@ def main():
                         help='The output dataset for RAG.')
     parser.add_argument('-c', '--credentials', dest='credentials', type=str, required=True,
                         help='The credentials for Gigachat API.')
+    parser.add_argument('-r', '--random', dest='random_seed', type=int, required=False, default=42,
+                        help='The random seed.')
+    parser.add_argument('--paragraph', dest='paragraph_only', action='store_true', required=False,
+                        help='Paragraph is a unit of context for RAG.')
     args = parser.parse_args()
+
+    random.seed(args.random_seed)
 
     input_fname = os.path.normpath(args.input_name)
     if not os.path.isfile(input_fname):
@@ -216,7 +227,8 @@ def main():
                 prepared = prepare_positive_and_negative_sample(
                     cur_document=val,
                     other_document=data_for_testing[other_idx],
-                    credentials=args.credentials
+                    credentials=args.credentials,
+                    full_document=not args.paragraph_only
                 )
                 if prepared is None:
                     warn_msg = f'The document "{val["title"]}" is not processed.'
@@ -243,7 +255,8 @@ def main():
                 prepared = prepare_positive_and_negative_sample(
                     cur_document=val,
                     other_document=data_for_validation[other_idx],
-                    credentials=args.credentials
+                    credentials=args.credentials,
+                    full_document=not args.paragraph_only
                 )
                 if prepared is None:
                     warn_msg = f'The document "{val["title"]}" is not processed.'
@@ -271,7 +284,8 @@ def main():
                 prepared = prepare_positive_and_negative_sample(
                     cur_document=val,
                     other_document=data_for_training[other_idx],
-                    credentials=args.credentials
+                    credentials=args.credentials,
+                    full_document=not args.paragraph_only
                 )
                 if prepared is None:
                     warn_msg = f'The document "{val["title"]}" is not processed.'
