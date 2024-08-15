@@ -4,16 +4,18 @@ import logging
 import os
 import random
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple, Union
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+from augmentex.char import CharAug
 from datasets import load_dataset
 from nltk import wordpunct_tokenize
 import numpy as np
 from sklearn.cluster import KMeans
 from tqdm import tqdm, trange
-from transformers import GPT2Tokenizer, Adafactor, GenerationConfig
+from transformers import GPT2Tokenizer, GenerationConfig
+from transformers import LongformerTokenizerFast, LongformerModel
 from turbot5 import T5ForConditionalGeneration
 import torch
 
@@ -23,6 +25,7 @@ from instructions.instructions import evaluate_any_task
 fredt5_rag_logger = logging.getLogger(__name__)
 NEGATIVE_ANSWER_1 = 'к сожалению я не могу ответить на ваш вопрос'
 NEGATIVE_ANSWER_2 = 'в этом тексте нет именованных сущностей такого типа'
+RANDOM_SEED: int = 42
 
 
 def is_positive_answer(answer: str) -> bool:
@@ -51,7 +54,7 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     fredt5_rag_logger.info(info_)
     del sorted_text_lengths
     text_lengths = np.array(text_lengths, dtype=np.float32).reshape((len(texts), 1))
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, verbose=True)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=RANDOM_SEED, verbose=True)
     predicted = kmeans.fit_predict(text_lengths)
     centers_of_clusters = {}
     for cluster_idx in range(kmeans.cluster_centers_.shape[0]):
@@ -59,7 +62,23 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     return [int(predicted[idx]) for idx in range(len(texts))], centers_of_clusters
 
 
-def generate_samples_for_minibatch(data_for_training: Dict[int, List[Tuple[List[int], List[int], bool]]],
+def augment_text(input_text: str, augmenters: List[CharAug], use_lm_tag: bool,
+                 existed_texts: Set[str]) -> Union[str, None]:
+    selected_augmenter = random.choice(augmenters)
+    if use_lm_tag:
+        new_input_text = selected_augmenter.augment(input_text[4:])
+    else:
+        new_input_text = selected_augmenter.augment(input_text)
+    if new_input_text in existed_texts:
+        return None
+    if use_lm_tag:
+        new_input_text = '<LM>' + new_input_text
+    return new_input_text
+
+
+def generate_samples_for_minibatch(data_for_training: Dict[int, List[Tuple[str, str, bool]]],
+                                   tokenizer: GPT2Tokenizer,
+                                   augmenters: List[CharAug], use_lm_tag: bool, existed_texts: Set[str],
                                    minibatch_size: int) -> Tuple[List[Tuple[List[int], List[int]]], List[int]]:
     env_list = sorted(list(data_for_training.keys()))
     if len(env_list) > 3:
@@ -84,7 +103,13 @@ def generate_samples_for_minibatch(data_for_training: Dict[int, List[Tuple[List[
             k=n_samples_from_env
         )
         for selected_sample in selected_samples:
-            samples_for_batch.append((selected_sample[0], selected_sample[1]))
+            source_input = selected_sample[0]
+            augmented_input = augment_text(source_input, augmenters, use_lm_tag, existed_texts)
+            target = selected_sample[1]
+            samples_for_batch.append((
+                tokenizer.encode(source_input if augmented_input is None else augmented_input),
+                tokenizer.encode(target)
+            ))
             environments_for_batch.append(val)
         del sample_weights, selected_samples
         n_added_samples += n_samples_from_env
@@ -93,15 +118,16 @@ def generate_samples_for_minibatch(data_for_training: Dict[int, List[Tuple[List[
 
 
 def main():
-    random.seed(42)
-    torch.manual_seed(42)
-    np.random.seed(42)
+    random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
 
     if not torch.cuda.is_available():
         err_msg = 'CUDA is not available!'
         fredt5_rag_logger.error(err_msg)
         raise ValueError(err_msg)
     device = torch.device('cuda')
+    torch.cuda.manual_seed(RANDOM_SEED)
 
     n_processes = max(os.cpu_count(), 1)
     fredt5_rag_logger.info(f'Number of parallel processes is {n_processes}.')
@@ -113,20 +139,25 @@ def main():
                         help='The output name of FRED-T5 after fine-tuning.')
     parser.add_argument('-d', '--data', dest='data_name', type=str, required=True,
                         help='The HF-formatted dataset name.')
+    parser.add_argument('-a', '--additional', dest='additional_data_name', type=str, required=False,
+                        default=None, action='append',
+                        help='The additional HF-formatted dataset name (it will be used only for training).')
     parser.add_argument('--batch', dest='batch_size', type=int, required=True,
                         help='The mini-batch size for FRED-T5 training.')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=False, default=None,
                         help='The mini-batch size for FRED-T5 evaluation.')
+    parser.add_argument('--eval_model', dest='eval_model', type=str, required=False,
+                        default='kazzand/ru-longformer-tiny-16384',
+                        help='The Longformer model for BERT score.')
+    parser.add_argument('--eval_task', dest='eval_task', type=str, required=False,
+                        default=None, action='append',
+                        help='The evaluation task for monitoring.')
     parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=3e-4,
                         help='The learning rate.')
-    parser.add_argument('--clip', dest='gradient_clipping', type=float, required=False, default=None,
-                        help='The gradient clipping by norm.')
     parser.add_argument('--envs', dest='environments', type=int, required=False, default=10,
                         help='The number of environments for the invariant risk minimization.')
     parser.add_argument('--no_lm_tag', dest='no_lm_tag', action='store_true', required=False,
                         help='The <LM> tag is not used.')
-    parser.add_argument('--penalty', dest='birm_penalty', type=float, required=False, default=10000.0,
-                        help='The penalty weight for BIRM.')
     parser.add_argument('--maxtokens', dest='maxtokens', type=int, required=False, default=None,
                         help='The maximal number of tokens for the training inputs.')
     parser.add_argument('--iters', dest='iters_per_epoch', type=int, required=False, default=None,
@@ -154,13 +185,6 @@ def main():
             fredt5_rag_logger.error(err_msg)
             raise ValueError(err_msg)
 
-    if args.gradient_clipping is not None:
-        if args.gradient_clipping <= 1e-4:
-            err_msg = f'The gradient clipping by norm = {args.gradient_clipping} is too small.'
-            fredt5_rag_logger.error(err_msg)
-            raise ValueError(err_msg)
-        fredt5_rag_logger.info(f'Gradient clipping with {args.gradient_clipping} is used.')
-
     minibatch_size = args.batch_size
     if minibatch_size <= 0:
         err_msg = f'The mini-batch size {args.batch_size} is wrong!'
@@ -182,11 +206,33 @@ def main():
             raise ValueError(err_msg)
         fredt5_rag_logger.info(f'Mini-batch size for evaluation is {eval_minibatch_size}.')
 
+    eval_tasks = None
+    if args.eval_task is not None:
+        eval_tasks = set()
+        for it in args.eval_task:
+            eval_tasks.add(it.lower().strip())
+        fredt5_rag_logger.info(f'The evaluation tasks for monitoring are: {eval_tasks}.')
+
+    scorer = (
+        LongformerTokenizerFast.from_pretrained(args.eval_model),
+        LongformerModel.from_pretrained(args.eval_model)
+    )
+
     dataset_path = os.path.normpath(args.data_name)
     if not os.path.isdir(dataset_path):
         err_msg = f'The directory {dataset_path} does not exist!'
         fredt5_rag_logger.error(err_msg)
         raise IOError(err_msg)
+
+    additional_datasets = []
+    if args.additional_data_name is not None:
+        for it in args.additional_data_name:
+            additional_dataset_path = os.path.normpath(it)
+            if not os.path.isdir(additional_dataset_path):
+                err_msg = f'The directory {additional_dataset_path} does not exist!'
+                fredt5_rag_logger.error(err_msg)
+                raise IOError(err_msg)
+            additional_datasets.append(additional_dataset_path)
 
     pretrained_dir_name = os.path.normpath(args.input_name)
     if not os.path.isdir(pretrained_dir_name):
@@ -223,9 +269,32 @@ def main():
     input_texts = [str(it) for it in trainset['input']]
     target_texts = [str(it) for it in trainset['target']]
     task_types = [str(it) for it in trainset['task_type']]
+    if len(additional_datasets) > 0:
+        for it in additional_datasets:
+            try:
+                additional_trainset = load_dataset(it, split='train')
+            except Exception as err:
+                fredt5_rag_logger.error((str(err)))
+                raise
+            info_msg = f'There are {len(additional_trainset)} samples in the additional training set ' \
+                       f'{os.path.basename(it)}.'
+            fredt5_rag_logger.info(info_msg)
+            if args.maxtokens is not None:
+                additional_trainset = additional_trainset.filter(
+                    lambda it: (len(tokenizer.tokenize(it['input'])) + len(
+                        tokenizer.tokenize(it['target']))) <= args.maxtokens
+                )
+                info_msg = f'There are {len(additional_trainset)} samples in the additional training set ' \
+                           f'{os.path.basename(it)} after filtering.'
+                fredt5_rag_logger.info(info_msg)
+            input_texts += [str(it) for it in additional_trainset['input']]
+            target_texts += [str(it) for it in additional_trainset['target']]
+            task_types += [os.path.basename(it) for _ in range(len(additional_trainset))]
+            del additional_trainset
     input_clusters, centers_or_clusters = calculate_text_clusters(input_texts, tokenizer, n_clusters=args.environments)
     fredt5_rag_logger.info(f'Set of environments is {set(input_clusters)}.')
     data_for_training = dict()
+    all_existed_texts = set()
     for idx, val in enumerate(input_clusters):
         input_text = input_texts[idx]
         target_text = target_texts[idx]
@@ -243,25 +312,26 @@ def main():
             if task in data_for_training[val]:
                 data_for_training[val][task].append(
                     (
-                        tokenizer.encode(input_text),
-                        tokenizer.encode(target_text),
+                        input_text,
+                        target_text,
                         is_positive
                     )
                 )
             else:
                 data_for_training[val][task] = [(
-                    tokenizer.encode(input_text),
-                    tokenizer.encode(target_text),
+                    input_text,
+                    target_text,
                     is_positive
                 )]
         else:
             data_for_training[val] = {
                 task: [(
-                    tokenizer.encode(input_text),
-                    tokenizer.encode(target_text),
+                    input_text,
+                    target_text,
                     is_positive
                 )]
             }
+        all_existed_texts.add(input_text)
     del input_texts, target_texts, trainset
     if len(data_for_training) < 2:
         err_msg = (f'The number of training environments is too small! '
@@ -288,6 +358,20 @@ def main():
     input_texts = [str(it) for it in valset['input']]
     target_texts = [str(it) for it in valset['target']]
     task_types = [str(it) for it in valset['task_type']]
+    if len(additional_datasets) > 0:
+        for it in additional_datasets:
+            try:
+                additional_valset = load_dataset(it, split='validation')
+            except Exception as err:
+                fredt5_rag_logger.error((str(err)))
+                raise
+            info_msg = f'There are {len(additional_valset)} samples in the additional validation set ' \
+                       f'{os.path.basename(it)}.'
+            fredt5_rag_logger.info(info_msg)
+            input_texts += [str(it) for it in additional_valset['input']]
+            target_texts += [str(it) for it in additional_valset['target']]
+            task_types += [os.path.basename(it) for _ in range(len(additional_valset))]
+            del additional_valset
     data_for_validation = dict()
     for val in zip(input_texts, target_texts, task_types):
         input_text, target_text, task_type = val
@@ -299,13 +383,38 @@ def main():
                 input_text = '<LM>' + input_text
         if not target_text.endswith('</s>'):
             target_text += '</s>'
-        if task_type in data_for_validation:
-            data_for_validation[task_type].append((input_text, target_text))
+        if eval_tasks is None:
+            can_add = True
         else:
-            data_for_validation[task_type] = [(input_text, target_text)]
+            can_add = (task_type in eval_tasks)
+        if can_add:
+            if task_type in data_for_validation:
+                data_for_validation[task_type].append((input_text, target_text))
+            else:
+                data_for_validation[task_type] = [(input_text, target_text)]
+        all_existed_texts.add(input_text)
     del input_texts, target_texts, task_types, valset
     tasks = sorted(list(data_for_validation.keys()))
     fredt5_rag_logger.info(f'There are {len(tasks)} validation task types.')
+
+    char_aug_pc = CharAug(
+        unit_prob=0.1,
+        min_aug=1,
+        max_aug=5,
+        mult_num=3,
+        lang='rus',
+        platform='pc',
+        random_seed=RANDOM_SEED
+    )
+    char_aug_mobile = CharAug(
+        unit_prob=0.1,
+        min_aug=1,
+        max_aug=5,
+        mult_num=3,
+        lang='rus',
+        platform='mobile',
+        random_seed=RANDOM_SEED
+    )
 
     try:
         model = T5ForConditionalGeneration.from_pretrained(
@@ -356,15 +465,11 @@ def main():
     generation_config.save_pretrained(finetuned_dir_name)
     fredt5_rag_logger.info(f'{generation_config}')
 
-    optimizer = Adafactor(
+    optimizer = torch.optim.AdamW(
         params=[p for p in model.parameters() if p.requires_grad],
-        scale_parameter=False,
-        relative_step=False,
-        warmup_init=False,
-        lr=args.learning_rate,
-        clip_threshold=1.0
+        weight_decay=1e-1,
+        lr=args.learning_rate
     )
-    loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100).to(device)
     max_epochs = 200
 
     n_training_batches = int(np.ceil(n_training_samples / minibatch_size))
@@ -374,34 +479,14 @@ def main():
         max_epochs = max(max_iters // n_training_batches, 3)
     fredt5_rag_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
-    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
-    fredt5_rag_logger.info(f'Random mini-batch 1 is:')
-    for idx in range(minibatch_size):
-        fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
-        fredt5_rag_logger.info(f'Environment: {envs_in_batch[idx]}')
-        fredt5_rag_logger.info('Input:  ' + tokenizer.decode(samples_in_batch[idx][0]))
-        fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
-    del samples_in_batch, envs_in_batch
-
-    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
-    fredt5_rag_logger.info(f'Random mini-batch 2 is:')
-    for idx in range(minibatch_size):
-        fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
-        fredt5_rag_logger.info(f'Environment: {envs_in_batch[idx]}')
-        fredt5_rag_logger.info('Input:  ' + tokenizer.decode(samples_in_batch[idx][0]))
-        fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
-    del samples_in_batch, envs_in_batch
-
-    samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
-    fredt5_rag_logger.info(f'Random mini-batch 3 is:')
-    for idx in range(minibatch_size):
-        fredt5_rag_logger.info(f'Sample {idx} in mini-batch')
-        fredt5_rag_logger.info(f'Environment: {envs_in_batch[idx]}')
-        fredt5_rag_logger.info('Input:  ' + tokenizer.decode(samples_in_batch[idx][0]))
-        fredt5_rag_logger.info('Target: ' + tokenizer.decode(samples_in_batch[idx][1]))
-    del samples_in_batch, envs_in_batch
-
-    gc.collect()
+    scheduler = torch.optim.lr_scheduler.CyclicLR(
+        optimizer,
+        base_lr=args.learning_rate,
+        max_lr=10.0 * args.learning_rate,
+        step_size_up=min(3 * n_training_batches, 3000),
+        cycle_momentum=False,
+        mode='triangular2'
+    )
 
     if args.no_pre_eval:
         best_score = None
@@ -411,99 +496,74 @@ def main():
             try:
                 eval_score, results_by_tasks = evaluate_any_task(data_for_validation[task],
                                                                  tokenizer, generation_config, model,
-                                                                 eval_minibatch_size)
+                                                                 eval_minibatch_size, scorer)
             except Exception as err:
                 fredt5_rag_logger.error(str(err))
                 raise
             del results_by_tasks
             scores.append(eval_score)
-            fredt5_rag_logger.info(f'Before training: ChrF for task {task} is {round(eval_score, 6)}.')
+            fredt5_rag_logger.info(f'Before training: BERT score for task {task} is {round(eval_score, 6)}.')
             torch.cuda.empty_cache()
             gc.collect()
         best_score = sum(scores) / len(scores)
         del scores
-        fredt5_rag_logger.info(f'Before training: mean ChrF is {round(best_score, 6)}.')
+        fredt5_rag_logger.info(f'Before training: mean BERT score is {round(best_score, 6)}.')
 
     for epoch in range(1, max_epochs + 1):
         fredt5_rag_logger.info(f'Epoch {epoch} is started.')
         model.train()
         total_training_loss_val = 0.0
-        training_nll_val = 0.0
-        training_penalty_val = 0.0
         for _ in trange(n_training_batches):
-            samples_in_batch, envs_in_batch = generate_samples_for_minibatch(data_for_training_, minibatch_size)
-            x_input_ids_ = []
-            x_attention_mask_ = []
-            y_input_ids_ = []
-            y_attention_mask_ = []
-            for input_sequence, output_sequence in samples_in_batch:
-                x_input_ids_.append(torch.tensor(input_sequence, dtype=torch.long))
-                x_attention_mask_.append(torch.tensor([1 for _ in range(len(input_sequence))], dtype=torch.long))
-                y_input_ids_.append(torch.tensor(output_sequence, dtype=torch.long))
-                y_attention_mask_.append(torch.tensor([1 for _ in range(len(output_sequence))], dtype=torch.long))
-            del samples_in_batch
-            envs_in_batch_pt = torch.tensor(envs_in_batch, dtype=torch.long).to(device)
-            x_input_ids = torch.nn.utils.rnn.pad_sequence(
-                x_input_ids_,
-                batch_first=True,
-                padding_value=tokenizer.pad_token_id
-            ).to(device)
-            x_attention_mask = torch.nn.utils.rnn.pad_sequence(
-                x_attention_mask_,
-                batch_first=True,
-                padding_value=0
-            ).to(device)
-            y_input_ids = torch.nn.utils.rnn.pad_sequence(
-                y_input_ids_,
-                batch_first=True,
-                padding_value=-100
-            ).to(device)
-            y_attention_mask = torch.nn.utils.rnn.pad_sequence(
-                y_attention_mask_,
-                batch_first=True,
-                padding_value=0
-            ).to(device)
-            del x_input_ids_, y_input_ids_
-            del x_attention_mask_, y_attention_mask_
-            res = model(
-                input_ids=x_input_ids,
-                attention_mask=x_attention_mask,
-                labels=y_input_ids,
-                decoder_attention_mask=y_attention_mask,
-                return_dict=True
+            samples_in_batch, _ = generate_samples_for_minibatch(
+                data_for_training_, tokenizer,
+                augmenters=[char_aug_pc, char_aug_mobile], existed_texts=all_existed_texts,
+                use_lm_tag=not args.no_lm_tag, minibatch_size=minibatch_size
             )
-            train_logits = res.logits
-            train_nll = res.loss
-            loss_list = []
-            for cur_env in set(envs_in_batch):
-                ei = (envs_in_batch_pt == cur_env).view(-1)
-                labels_for_env = y_attention_mask[ei]
-                logits_for_env = train_logits[ei]
-                train_nll_ = loss_fct(logits_for_env.view(-1, logits_for_env.size(-1)), labels_for_env.view(-1))
-                loss_list.append(train_nll_)
-            loss_t = torch.stack(loss_list)
-            train_penalty = ((loss_t - loss_t.mean()) ** 2).mean()
-            train_penalty *= args.birm_penalty
-            loss = train_nll.clone()
-            loss += train_penalty
-            training_nll_val += float(train_nll.detach().cpu())
-            training_penalty_val += float(train_penalty.detach().cpu())
-            total_training_loss_val += float(loss.detach().cpu())
-            loss.backward()
-            if args.gradient_clipping is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clipping)
+            for input_sequence, output_sequence in samples_in_batch:
+                x_input_ids_ = [torch.tensor(input_sequence, dtype=torch.long)]
+                x_attention_mask_ = [torch.tensor([1 for _ in range(len(input_sequence))], dtype=torch.long)]
+                y_input_ids_ = [torch.tensor(output_sequence, dtype=torch.long)]
+                y_attention_mask_ = [torch.tensor([1 for _ in range(len(output_sequence))], dtype=torch.long)]
+                x_input_ids = torch.nn.utils.rnn.pad_sequence(
+                    x_input_ids_,
+                    batch_first=True,
+                    padding_value=tokenizer.pad_token_id
+                ).to(device)
+                x_attention_mask = torch.nn.utils.rnn.pad_sequence(
+                    x_attention_mask_,
+                    batch_first=True,
+                    padding_value=0
+                ).to(device)
+                y_input_ids = torch.nn.utils.rnn.pad_sequence(
+                    y_input_ids_,
+                    batch_first=True,
+                    padding_value=-100
+                ).to(device)
+                y_attention_mask = torch.nn.utils.rnn.pad_sequence(
+                    y_attention_mask_,
+                    batch_first=True,
+                    padding_value=0
+                ).to(device)
+                del x_input_ids_, y_input_ids_
+                del x_attention_mask_, y_attention_mask_
+                loss = model(
+                    input_ids=x_input_ids,
+                    attention_mask=x_attention_mask,
+                    labels=y_input_ids,
+                    decoder_attention_mask=y_attention_mask,
+                    return_dict=True
+                ).loss / len(samples_in_batch)
+                total_training_loss_val += float(loss.detach().cpu())
+                loss.backward()
+                del x_input_ids, y_input_ids
+                del x_attention_mask, y_attention_mask
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            scheduler.step()
             optimizer.zero_grad()
-            del envs_in_batch, envs_in_batch_pt
-            del x_input_ids, y_input_ids
-            del x_attention_mask, y_attention_mask
-            del res
             torch.cuda.empty_cache()
         total_training_loss_val /= float(n_training_batches)
-        training_nll_val /= float(n_training_batches)
-        training_penalty_val /= float(n_training_batches)
-        info_msg = (f'Epoch {epoch}: total training loss is {total_training_loss_val}, '
-                    f'training cross-entropy is {training_nll_val}, invariance penalty is {training_penalty_val}.')
+        info_msg = f'Epoch {epoch}: total training loss is {total_training_loss_val}.'
         fredt5_rag_logger.info(info_msg)
         model.eval()
         gc.collect()
@@ -513,18 +573,18 @@ def main():
             try:
                 eval_score, results_by_tasks = evaluate_any_task(data_for_validation[task],
                                                                  tokenizer, generation_config, model,
-                                                                 eval_minibatch_size)
+                                                                 eval_minibatch_size, scorer)
             except Exception as err:
                 fredt5_rag_logger.error(str(err))
                 raise
             del results_by_tasks
             scores.append(eval_score)
-            fredt5_rag_logger.info(f'Epoch {epoch}: ChrF for task {task} is {round(eval_score, 6)}.')
+            fredt5_rag_logger.info(f'Epoch {epoch}: BERT score for task {task} is {round(eval_score, 6)}.')
             torch.cuda.empty_cache()
             gc.collect()
         new_score = sum(scores) / len(scores)
         del scores
-        fredt5_rag_logger.info(f'Epoch {epoch}: mean ChrF is {round(new_score, 6)}.')
+        fredt5_rag_logger.info(f'Epoch {epoch}: mean BERT score is {round(new_score, 6)}.')
         if best_score is None:
             updated = True
         else:

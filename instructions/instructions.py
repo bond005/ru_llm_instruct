@@ -11,9 +11,11 @@ from sklearn.metrics import f1_score
 import spacy
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
+from transformers import LongformerTokenizerFast, LongformerModel
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
+from score.score import bert_score
 from utils.utils import calculate_word_error_rate, process_target, normalize_text, tokenize_text
 
 
@@ -354,18 +356,18 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             })
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
-    f1 = ner_f1_score(y_true, y_pred)
+    f1_list = float(ner_f1_score(y_true, y_pred, average='macro'))
     printed_results = [
         {
             'INPUT': val['INPUT'],
             'PREDICTED': f'{val["PREDICTED"]}',
             'TRUE': f'{val["TRUE"]}',
-            'SCORE': ner_f1_score(y_true[idx:(idx + 1)], y_pred[idx:(idx + 1)])
+            'SCORE': float(ner_f1_score(y_true[idx:(idx + 1)], y_pred[idx:(idx + 1)], average='macro'))
         }
         for idx, val in enumerate(printed_results)
     ]
     printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
-    return f1, printed_results
+    return f1_list, printed_results
 
 
 def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
@@ -442,7 +444,8 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
 
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
-                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int) -> (
+                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
+                      evaluator: Tuple[LongformerTokenizerFast, LongformerModel]) -> (
         Tuple)[float, List[Dict[str, str]]]:
     if len(data_for_validation) < 1:
         raise ValueError(f'The validation data are empty!')
@@ -471,28 +474,26 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         err_msg = f'The predicted texts number does not correspond to the validation data size! ' \
                   f'{len(candidates)} != {len(data_for_validation)}'
         raise ValueError(err_msg)
-    nlp = spacy.load('ru_core_news_sm')
-    scores = list(map(
-        lambda it: sentence_chrf(
-            reference=normalize_text(it[0], nlp),
-            hypothesis=normalize_text(it[1], nlp)
-        ),
-        zip(references, candidates)
-    ))
+    scores = bert_score(
+        references=references,
+        predictions=candidates,
+        batch_size=64,
+        evaluator=evaluator
+    )
     if len(references) != len(scores):
         err_msg = f'The true answers do not correspond to the CHRF scores! {len(references)} != {len(scores)}.'
         raise ValueError(err_msg)
     f1_mean = float(np.mean(scores))
     for idx in range(len(scores)):
         printed_results[idx]['SCORE'] = scores[idx]
-    del scores, references, candidates, nlp
+    del scores, references, candidates
     printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return f1_mean, printed_results
 
 
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
-             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration,
-             minibatch: int) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
+             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
+             evaluator: Tuple[LongformerTokenizerFast, LongformerModel]) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
     for task in data_for_validation:
@@ -506,7 +507,7 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
         elif task.endswith('_detection'):
             res[task] = evaluate_danet(data_for_validation[task], tokenizer, config, model, minibatch)
         else:
-            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch)
+            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch, evaluator)
         scores.append(max(res[task][0], 1e-9))
     mean_score = float(hmean(scores))
     del scores
