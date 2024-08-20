@@ -38,8 +38,8 @@ def is_positive_answer(answer: str) -> bool:
     return words_of_answer != set(NEGATIVE_ANSWER_2.split())
 
 
-def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
-                            n_clusters: int) -> Tuple[List[int], Dict[int, float]]:
+def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer, n_clusters: int,
+                            seed: int = RANDOM_SEED) -> Tuple[List[int], Dict[int, float]]:
     fredt5_rag_logger.info(f'Number of input texts is {len(texts)}. Some of them are:')
     if len(texts) > 5:
         printed_texts = random.sample(texts, 5)
@@ -54,7 +54,7 @@ def calculate_text_clusters(texts: List[str], tokenizer: GPT2Tokenizer,
     fredt5_rag_logger.info(info_)
     del sorted_text_lengths
     text_lengths = np.array(text_lengths, dtype=np.float32).reshape((len(texts), 1))
-    kmeans = KMeans(n_clusters=n_clusters, random_state=RANDOM_SEED, verbose=True)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=seed, verbose=True)
     predicted = kmeans.fit_predict(text_lengths)
     centers_of_clusters = {}
     for cluster_idx in range(kmeans.cluster_centers_.shape[0]):
@@ -144,6 +144,8 @@ def main():
                         help='The additional HF-formatted dataset name (it will be used only for training).')
     parser.add_argument('--batch', dest='batch_size', type=int, required=True,
                         help='The mini-batch size for FRED-T5 training.')
+    parser.add_argument('--alg', dest='algorithm', type=str, required=False, choices=['rmsprop', 'adamw'],
+                        default='adamw', help='The training algorithm (RMSprop or AdamW).')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=False, default=None,
                         help='The mini-batch size for FRED-T5 evaluation.')
     parser.add_argument('--eval_model', dest='eval_model', type=str, required=False,
@@ -164,7 +166,14 @@ def main():
                         help='The iterations per epoch.')
     parser.add_argument('--no_pre_eval', dest='no_pre_eval', action='store_true', required=False,
                         help='The preliminary evaluation (before training) is not realized.')
+    parser.add_argument('--random', dest='random_seed', type=int, required=False, default=RANDOM_SEED,
+                        help='The random seed.')
     args = parser.parse_args()
+
+    random.seed(args.random_seed)
+    torch.manual_seed(args.random_seed)
+    np.random.seed(args.random_seed)
+    torch.cuda.manual_seed(args.random_seed)
 
     finetuned_dir_name = os.path.normpath(args.output_name)
     if (len(finetuned_dir_name) == 0) or (finetuned_dir_name == '.'):
@@ -291,7 +300,8 @@ def main():
             target_texts += [str(it) for it in additional_trainset['target']]
             task_types += [os.path.basename(it) for _ in range(len(additional_trainset))]
             del additional_trainset
-    input_clusters, centers_or_clusters = calculate_text_clusters(input_texts, tokenizer, n_clusters=args.environments)
+    input_clusters, centers_or_clusters = calculate_text_clusters(input_texts, tokenizer, n_clusters=args.environments,
+                                                                  seed=args.random_seed)
     fredt5_rag_logger.info(f'Set of environments is {set(input_clusters)}.')
     data_for_training = dict()
     all_existed_texts = set()
@@ -404,7 +414,7 @@ def main():
         mult_num=3,
         lang='rus',
         platform='pc',
-        random_seed=RANDOM_SEED
+        random_seed=args.random_seed
     )
     char_aug_mobile = CharAug(
         unit_prob=0.1,
@@ -413,7 +423,7 @@ def main():
         mult_num=3,
         lang='rus',
         platform='mobile',
-        random_seed=RANDOM_SEED
+        random_seed=args.random_seed
     )
 
     try:
@@ -465,11 +475,25 @@ def main():
     generation_config.save_pretrained(finetuned_dir_name)
     fredt5_rag_logger.info(f'{generation_config}')
 
-    optimizer = torch.optim.AdamW(
-        params=[p for p in model.parameters() if p.requires_grad],
-        weight_decay=1e-1,
-        lr=args.learning_rate
-    )
+    if args.algorithm == 'adamw':
+        try:
+            optimizer = torch.optim.AdamW(
+                params=[p for p in model.parameters() if p.requires_grad],
+                weight_decay=1e-1,
+                lr=args.learning_rate,
+                fused=False
+            )
+        except:
+            optimizer = torch.optim.AdamW(
+                params=[p for p in model.parameters() if p.requires_grad],
+                weight_decay=1e-1,
+                lr=args.learning_rate
+            )
+    else:
+        optimizer = torch.optim.RMSprop(
+            params=[p for p in model.parameters() if p.requires_grad],
+            lr=args.learning_rate
+        )
     max_epochs = 200
 
     n_training_batches = int(np.ceil(n_training_samples / minibatch_size))
