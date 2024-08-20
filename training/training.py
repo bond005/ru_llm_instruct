@@ -4,7 +4,7 @@ import csv
 import json
 import logging
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import torch
 
@@ -111,6 +111,7 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
         for row in data_reader:
             if len(row) > 0:
                 err_msg = f'"{fname}": line {line_idx} is wrong!'
+                line_idx += 1
                 if loaded_header is None:
                     loaded_header = copy.copy(row)
                     if loaded_header != true_header:
@@ -120,61 +121,62 @@ def load_trainset(fname: str, lm_tag: bool = True) -> Dict[str, List[Tuple[str, 
                 else:
                     if len(row) != len(loaded_header):
                         err_msg += f' The row size is impossible! Expected {len(loaded_header)}, got {len(row)}.'
-                        training_logger.error(err_msg + f' {row}')
-                        raise IOError(err_msg + f' {row}')
-                    input_text = row[0].strip()
-                    target_text = row[1].strip()
-                    if not input_text.startswith('<LM>'):
-                        err_msg += f' The input text is impossible! It must be started with <LM>. {input_text}'
-                        training_logger.error(err_msg)
-                        raise IOError(err_msg)
-                    if not target_text.endswith('</s>'):
-                        err_msg += f' The target text is impossible! It must be ended with </s>. {target_text}'
-                        training_logger.error(err_msg)
-                        raise IOError(err_msg)
-                    if len(input_text[4:].strip()) == 0:
-                        err_msg += f' The input text is empty! {input_text}'
-                        training_logger.error(err_msg)
-                        raise IOError(err_msg)
-                    if len(target_text[-4:].strip()) == 0:
-                        err_msg += f' The target text is empty! {input_text}'
-                        training_logger.error(err_msg)
-                        raise IOError(err_msg)
-                    task_id = get_task_type(input_text, use_lm_tag=True)
-                    if task_id >= 0:
-                        task_name = KNOWN_TASKS[task_id][1]
-                        prompt = KNOWN_TASKS[task_id][0]
-                        context = input_text[(4 + len(prompt)):].strip()
-                        while context.startswith('-'):
-                            context = context[1:].strip()
-                        if len(context) == 0:
-                            err_msg += f' The command context is empty! {input_text}'
-                            training_logger.error(err_msg)
-                            raise IOError(err_msg)
-                        input_text = '<LM>' + prompt.strip() + ' ' + context
+                        training_logger.warning(err_msg + f' {row}')
                     else:
-                        task_name = 'unknown'
-                        instruction = input_text[4:].strip()
-                        while instruction.startswith('-'):
-                            instruction = instruction[1:].strip()
-                        if len(instruction) == 0:
-                            err_msg += f' The instruction is empty! {input_text}'
+                        input_text = row[0].strip()
+                        target_text = row[1].strip()
+                        if not input_text.startswith('<LM>'):
+                            err_msg += f' The input text is impossible! It must be started with <LM>. {input_text}'
+                            training_logger.warning(err_msg)
+                            continue
+                        if not target_text.endswith('</s>'):
+                            err_msg += f' The target text is impossible! It must be ended with </s>. {target_text}'
+                            training_logger.warning(err_msg)
+                            continue
+                        if len(input_text[4:].strip()) == 0:
+                            err_msg += f' The input text is empty! {input_text}'
                             training_logger.error(err_msg)
                             raise IOError(err_msg)
-                        input_text = '<LM>' + instruction
-                    input_text = input_text.replace('\r\n', '\n')
-                    target_text = target_text.strip()
-                    while target_text.startswith('-'):
-                        target_text = target_text[1:].strip()
-                    if len(target_text) == 0:
-                        err_msg += f' The target is empty! {target_text}'
-                        training_logger.error(err_msg)
-                        raise IOError(err_msg)
-                    target_text = target_text.replace('\r\n', '\n')
-                    if task_name not in res:
-                        res[task_name] = []
-                    res[task_name].append((input_text, target_text))
-            line_idx += 1
+                        if len(target_text[-4:].strip()) == 0:
+                            err_msg += f' The target text is empty! {input_text}'
+                            training_logger.error(err_msg)
+                            raise IOError(err_msg)
+                        task_id = get_task_type(input_text, use_lm_tag=True)
+                        if task_id >= 0:
+                            task_name = KNOWN_TASKS[task_id][1]
+                            prompt = KNOWN_TASKS[task_id][0]
+                            context = input_text[(4 + len(prompt)):].strip()
+                            while context.startswith('-'):
+                                context = context[1:].strip()
+                            if len(context) == 0:
+                                err_msg += f' The command context is empty! {input_text}'
+                                training_logger.error(err_msg)
+                                raise IOError(err_msg)
+                            input_text = '<LM>' + prompt.strip() + ' ' + context
+                        else:
+                            task_name = 'unknown'
+                            instruction = input_text[4:].strip()
+                            while instruction.startswith('-'):
+                                instruction = instruction[1:].strip()
+                            if len(instruction) == 0:
+                                err_msg += f' The instruction is empty! {input_text}'
+                                training_logger.error(err_msg)
+                                raise IOError(err_msg)
+                            input_text = '<LM>' + instruction
+                        input_text = input_text.replace('\r\n', '\n')
+                        target_text = target_text.strip()
+                        while target_text.startswith('-'):
+                            target_text = target_text[1:].strip()
+                        if len(target_text) == 0:
+                            err_msg += f' The target is empty! {target_text}'
+                            training_logger.error(err_msg)
+                            raise IOError(err_msg)
+                        target_text = target_text.replace('\r\n', '\n')
+                        if task_name not in res:
+                            res[task_name] = []
+                        res[task_name].append((input_text, target_text))
+            else:
+                line_idx += 1
     set_of_tasks = set(res.keys())
     if 'detoxification' in set_of_tasks:
         detoxification_prompt = '<LM>Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным ' \
@@ -323,61 +325,121 @@ def create_few_shot_sample(answer: Tuple[str, str], examples: List[Tuple[str, st
     return extended_input_question, true_answer
 
 
-def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[Tuple[str, str]]]:
+def add_few_shot_tasks(few_shot: Dict[str, List[Tuple[str, str]]],
+                       questions: Union[Dict[str, List[Tuple[str, str]]], None] = None) -> List[Tuple[str, str]]:
     tasks_for_few_shot_inference = {
+        'asr_correction',
         'detoxification',
         'ner_location',
         'ner_person',
         'ner_organization',
-        'simplification'
+        'simplification',
+        'toxicity_detection'
     }
-    MAX_CHARACTERS_IN_INPUT = 1500
+    MAX_CHARACTERS_IN_INPUT = 3500
     MIN_SAMPLES_PER_TASK = 6
-    set_of_tasks = sorted(list(set(src.keys()) & tasks_for_few_shot_inference))
+    set_of_tasks = sorted(list(set(few_shot.keys()) & tasks_for_few_shot_inference))
     if len(set_of_tasks) == 0:
         err_msg = 'There are no tasks for a few-shot inference!'
         training_logger.error(err_msg)
         raise ValueError(err_msg)
+    if questions is not None:
+        set_of_tasks_ = set(questions.keys()) & tasks_for_few_shot_inference
+        if len(set_of_tasks_) == 0:
+            err_msg = 'There are no tasks for a few-shot inference!'
+            training_logger.error(err_msg)
+            raise ValueError(err_msg)
+        if not (set_of_tasks_ <= set(set_of_tasks)):
+            err_msg = f'The tasks {set_of_tasks_ - set(set_of_tasks)} are excess!'
+            training_logger.error(err_msg)
+            raise ValueError(err_msg)
+        del set_of_tasks
+        set_of_tasks = sorted(list(set_of_tasks_))
+        del set_of_tasks_
+    few_shot_samples = []
     for cur_task in set_of_tasks:
         new_samples = []
-        src_short_samples = list(filter(lambda it: len(it[0]) <= MAX_CHARACTERS_IN_INPUT, src[cur_task]))
+        src_short_samples = list(filter(lambda it: len(it[0]) <= MAX_CHARACTERS_IN_INPUT, few_shot[cur_task]))
         if len(src_short_samples) < MIN_SAMPLES_PER_TASK:
             err_msg = f'The task {cur_task} cannot be used for a few-shot inference!'
             training_logger.error(err_msg)
             raise ValueError(err_msg)
-        for idx, val in enumerate(src_short_samples):
-            other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
-            indices_of_examples = random.sample(
-                population=other_indices,
-                k=random.randint(1, MIN_SAMPLES_PER_TASK - 1)
-            )
-            if cur_task.startswith('ner_'):
-                samples_for_ner = [src_short_samples[i] for i in indices_of_examples]
-                samples_with_answer = list(filter(
-                    lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') < 0,
-                    samples_for_ner
-                ))
-                samples_with_without_answer = list(filter(
-                    lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') >= 0,
-                    samples_for_ner
-                ))
-                if len(samples_with_answer) > 0:
-                    if len(samples_with_without_answer) > 1:
-                        samples_with_without_answer = random.sample(
-                            population=samples_with_without_answer,
-                            k=1
-                        )
+        if questions is None:
+            for idx, val in enumerate(src_short_samples):
+                other_indices = sorted(list(set(range(len(src_short_samples))) - {idx}))
+                indices_of_examples = random.sample(
+                    population=other_indices,
+                    k=random.randint(2, MIN_SAMPLES_PER_TASK - 1)
+                )
+                if cur_task.startswith('ner_'):
+                    samples_for_ner = [src_short_samples[i] for i in indices_of_examples]
+                    samples_with_answer = list(filter(
+                        lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') < 0,
+                        samples_for_ner
+                    ))
+                    samples_with_without_answer = list(filter(
+                        lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') >= 0,
+                        samples_for_ner
+                    ))
+                    if len(samples_with_answer) > 0:
+                        if len(samples_with_without_answer) > 1:
+                            samples_with_without_answer = random.sample(
+                                population=samples_with_without_answer,
+                                k=1
+                            )
+                        new_samples.append(create_few_shot_sample(
+                            val,
+                            samples_with_answer + samples_with_without_answer,
+                            False
+                        ))
+                else:
                     new_samples.append(create_few_shot_sample(
                         val,
-                        samples_with_answer + samples_with_without_answer,
-                        True
+                        [src_short_samples[i] for i in indices_of_examples],
+                        False
                     ))
-            else:
-                new_samples.append(create_few_shot_sample(
-                    val,
-                    [src_short_samples[i] for i in indices_of_examples],
-                    True
-                ))
+        else:
+            candidates_to_questions = list(filter(
+                lambda it: len(it[0]) <= MAX_CHARACTERS_IN_INPUT,
+                questions[cur_task]
+            ))
+            if len(candidates_to_questions) < MIN_SAMPLES_PER_TASK:
+                err_msg = f'The task {cur_task} cannot be used for a few-shot inference!'
+                training_logger.error(err_msg)
+                raise ValueError(err_msg)
+            for val in candidates_to_questions:
+                all_indices = list(range(len(src_short_samples)))
+                indices_of_examples = random.sample(
+                    population=all_indices,
+                    k=random.randint(2, MIN_SAMPLES_PER_TASK - 1)
+                )
+                if cur_task.startswith('ner_'):
+                    samples_for_ner = [src_short_samples[i] for i in indices_of_examples]
+                    samples_with_answer = list(filter(
+                        lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') < 0,
+                        samples_for_ner
+                    ))
+                    samples_with_without_answer = list(filter(
+                        lambda it: it[1].lower().find('в этом тексте нет именованных сущностей такого типа') >= 0,
+                        samples_for_ner
+                    ))
+                    if len(samples_with_answer) > 0:
+                        if len(samples_with_without_answer) > 1:
+                            samples_with_without_answer = random.sample(
+                                population=samples_with_without_answer,
+                                k=1
+                            )
+                        new_samples.append(create_few_shot_sample(
+                            val,
+                            samples_with_answer + samples_with_without_answer,
+                            False
+                        ))
+                else:
+                    new_samples.append(create_few_shot_sample(
+                        val,
+                        [src_short_samples[i] for i in indices_of_examples],
+                        False
+                    ))
         if len(new_samples) > 0:
             info_msg = f'Task {cur_task}: {len(new_samples)} few-shot samples are added.'
             training_logger.info(info_msg)
@@ -387,6 +449,6 @@ def add_few_shot_tasks(src: Dict[str, List[Tuple[str, str]]]) -> Dict[str, List[
                 selected_samples_for_print = new_samples
             for cur in selected_samples_for_print:
                 training_logger.info(json.dumps(obj=cur, ensure_ascii=False))
-            src[cur_task] += new_samples
+            few_shot_samples += new_samples
         del new_samples, src_short_samples
-    return src
+    return few_shot_samples

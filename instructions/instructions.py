@@ -1,7 +1,6 @@
 import math
 from multiprocessing import Pool
 import os
-import random
 from typing import Dict, List, Tuple
 
 from nltk.translate.chrf_score import sentence_chrf
@@ -12,9 +11,11 @@ from sklearn.metrics import f1_score
 import spacy
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
+from transformers import LongformerTokenizerFast, LongformerModel
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
+from score.score import bert_score
 from utils.utils import calculate_word_error_rate, process_target, normalize_text, tokenize_text
 
 
@@ -63,6 +64,10 @@ KNOWN_TASKS = [
         'Перепиши, пожалуйста, следующий текст так, чтобы он перестал быть токсичным '
         '(неприятным для какой-то группы людей, нарушающим принципы этики).',
         'detoxification'
+    ),
+    (
+        'Подскажи, пожалуйста, какая тональность - позитивная, негативная или нейтральная - у следующего текста?',
+        'sentiment_analysis'
     )
 ]
 
@@ -188,7 +193,20 @@ TASK_SYNONYMS = {
             'Перепиши текст, чтобы он перестал быть токсичным.',
             'Переформулируй текст, чтобы он перестал быть оскорбительным.'
         ]
-    }
+    },
+    'sentiment_analysis': {
+        'task': 'Подскажи, пожалуйста, какая тональность - позитивная, негативная или нейтральная - '
+                'у следующего текста?',
+        'synonyms': [
+            'Какие эмоции содержит данный текст - позитивные, негативные или нейтральные?',
+            'Какую эмоцию содержит данный текст - позитивную, негативную или нейтральную?',
+            'Можешь сказать, какой оттенок - положительный, отрицательный или нейтральный - у этого текста?',
+            'Поделитесь, пожалуйста, каким настроением - хорошим, плохим или никаким - обладает этот текст?',
+            'Скажите, пожалуйста, какое настроение - радостное, грустное или обычное - у этого текста?',
+            'Подскажите, пожалуйста, какой характер - приятный, неприятный или никакой - у этого текста?',
+            'Помогите определить, какой тон - веселый, грустный или обычный - у этого текста.'
+        ]
+    },
 }
 
 
@@ -238,14 +256,16 @@ def evaluate_asr_correction(data_for_validation: List[Tuple[str, str]], tokenize
     del arguments
     n_total_word_dist = 0
     n_total_words = 0
-    for cur_dist, cur_word_number in res:
+    for idx, (cur_dist, cur_word_number) in enumerate(res):
         n_total_word_dist += cur_dist
         n_total_words += cur_word_number
+        printed_results[idx]['SCORE'] = max(1.0 - cur_dist / max(float(cur_word_number), 1.0), 0.0)
     if n_total_words > 0:
         wer = n_total_word_dist / float(n_total_words)
     else:
         wer = 0.0
     del res
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return 1.0 - wer, printed_results
 
 
@@ -283,14 +303,16 @@ def evaluate_segmentation(data_for_validation: List[Tuple[str, str]], tokenizer:
     del arguments
     n_total_paragraph_dist = 0
     n_total_paragraphs = 0
-    for cur_dist, cur_paragraph_number in res:
+    for idx, (cur_dist, cur_paragraph_number) in enumerate(res):
         n_total_paragraph_dist += cur_dist
         n_total_paragraphs += cur_paragraph_number
+        printed_results[idx]['SCORE'] = max(1.0 - cur_dist / max(float(cur_paragraph_number), 1.0), 0.0)
     if n_total_paragraphs > 0:
         per = n_total_paragraph_dist / float(n_total_paragraphs)
     else:
         per = 0.0
     del res
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return 1.0 - per, printed_results
 
 
@@ -351,10 +373,18 @@ def evaluate_ner(data_for_validation: List[Tuple[str, str]], entity_class: str, 
             })
     y_true = [[x[1] for x in cur['TRUE']] for cur in printed_results]
     y_pred = [[x[1] for x in cur['PREDICTED']] for cur in printed_results]
-    f1 = ner_f1_score(y_true, y_pred)
-    printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
-                       for it in printed_results]
-    return f1, printed_results
+    f1_list = float(ner_f1_score(y_true, y_pred, average='macro'))
+    printed_results = [
+        {
+            'INPUT': val['INPUT'],
+            'PREDICTED': f'{val["PREDICTED"]}',
+            'TRUE': f'{val["TRUE"]}',
+            'SCORE': float(ner_f1_score(y_true[idx:(idx + 1)], y_pred[idx:(idx + 1)], average='macro'))
+        }
+        for idx, val in enumerate(printed_results)
+    ]
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
+    return f1_list, printed_results
 
 
 def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
@@ -413,13 +443,26 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
             })
     f1 = f1_score(da_true, da_pred, average='binary')
     f1 += f1_score(net_true, net_pred, average='binary')
-    printed_results = [{'INPUT': it['INPUT'], 'PREDICTED': f'{it["PREDICTED"]}', 'TRUE': f'{it["TRUE"]}'}
-                       for it in printed_results]
+    nlp = spacy.load('ru_core_news_sm')
+    printed_results = [
+        {
+            'INPUT': it['INPUT'],
+            'PREDICTED': f'{it["PREDICTED"]}',
+            'TRUE': f'{it["TRUE"]}',
+            'SCORE': sentence_chrf(
+                reference=normalize_text(it['TRUE'], nlp),
+                hypothesis=normalize_text(it['PREDICTED'], nlp)
+            )
+        }
+        for it in printed_results
+    ]
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return f1 / 2.0, printed_results
 
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
-                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int) -> (
+                      config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
+                      evaluator: Tuple[LongformerTokenizerFast, LongformerModel]) -> (
         Tuple)[float, List[Dict[str, str]]]:
     if len(data_for_validation) < 1:
         raise ValueError(f'The validation data are empty!')
@@ -448,27 +491,26 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         err_msg = f'The predicted texts number does not correspond to the validation data size! ' \
                   f'{len(candidates)} != {len(data_for_validation)}'
         raise ValueError(err_msg)
-    if len(printed_results) > 5:
-        printed_results = random.sample(printed_results, k=5)
-    nlp = spacy.load('ru_core_news_sm')
-    scores = list(map(
-        lambda it: sentence_chrf(
-            reference=normalize_text(it[0], nlp),
-            hypothesis=normalize_text(it[1], nlp)
-        ),
-        zip(references, candidates)
-    ))
+    scores = bert_score(
+        references=references,
+        predictions=candidates,
+        batch_size=64,
+        evaluator=evaluator
+    )
     if len(references) != len(scores):
         err_msg = f'The true answers do not correspond to the CHRF scores! {len(references)} != {len(scores)}.'
         raise ValueError(err_msg)
     f1_mean = float(np.mean(scores))
-    del scores, references, candidates, nlp
+    for idx in range(len(scores)):
+        printed_results[idx]['SCORE'] = scores[idx]
+    del scores, references, candidates
+    printed_results.sort(key=lambda it: (-it['SCORE'], len(it['INPUT']), len(it['TRUE']), len(it['PREDICTED'])))
     return f1_mean, printed_results
 
 
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
-             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration,
-             minibatch: int) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
+             tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
+             evaluator: Tuple[LongformerTokenizerFast, LongformerModel]) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
     for task in data_for_validation:
@@ -482,7 +524,7 @@ def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
         elif task.endswith('_detection'):
             res[task] = evaluate_danet(data_for_validation[task], tokenizer, config, model, minibatch)
         else:
-            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch)
+            res[task] = evaluate_any_task(data_for_validation[task], tokenizer, config, model, minibatch, evaluator)
         scores.append(max(res[task][0], 1e-9))
     mean_score = float(hmean(scores))
     del scores

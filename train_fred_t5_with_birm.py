@@ -10,6 +10,7 @@ from typing import List, Tuple
 import numpy as np
 from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, Adafactor, GenerationConfig
+from transformers import LongformerTokenizerFast, LongformerModel
 import torch
 
 from instructions.instructions import evaluate
@@ -47,6 +48,9 @@ def main():
                         help='The mini-batch size for FRED-T5 training.')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=False, default=None,
                         help='The mini-batch size for FRED-T5 evaluation.')
+    parser.add_argument('--eval_model', dest='eval_model', type=str, required=False,
+                        default='kazzand/ru-longformer-tiny-16384',
+                        help='The Longformer model for BERT score.')
     parser.add_argument('--accum', dest='gradient_accumulation', type=int, required=False, default=None,
                         help='The gradient accumulation for FRED-T5 training.')
     parser.add_argument('--lr', dest='learning_rate', type=float, required=False, default=3e-4,
@@ -253,9 +257,14 @@ def main():
             max_epochs = round(max_epochs * (n_training_samples / args.trainsize))
     fredt5_logger.info(f'Number of epochs is {max_epochs}. Iterations per epoch is {n_training_batches}.')
 
+    scorer = (
+        LongformerTokenizerFast.from_pretrained(args.eval_model),
+        LongformerModel.from_pretrained(args.eval_model)
+    )
+
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,
-                                                tokenizer, generation_config, model, eval_minibatch_size)
+                                                tokenizer, generation_config, model, eval_minibatch_size, scorer)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
@@ -272,7 +281,7 @@ def main():
         elif cur_task.endswith('_detection'):
             info_msg += 'Yes/No F1 is {0:.6f}.'.format(instant_score)
         else:
-            info_msg += 'ChrF score F1 is {0:.6f}.'.format(instant_score)
+            info_msg += 'BERT score F1 is {0:.6f}.'.format(instant_score)
         fredt5_logger.info(info_msg)
 
     for epoch in range(1, max_epochs + 1):
@@ -383,7 +392,7 @@ def main():
         torch.cuda.empty_cache()
         try:
             cur_score, results_by_tasks = evaluate(data_for_validation,
-                                                   tokenizer, generation_config, model, eval_minibatch_size)
+                                                   tokenizer, generation_config, model, eval_minibatch_size, scorer)
         except Exception as err:
             fredt5_logger.error(str(err))
             raise
@@ -400,7 +409,7 @@ def main():
             elif cur_task.endswith('_detection'):
                 info_msg += 'Yes/No F1 is {1:.6f}.'.format(epoch, instant_score)
             else:
-                info_msg += 'ChrF score F1 is {1:.6f}.'.format(epoch, instant_score)
+                info_msg += 'BERT score F1 is {1:.6f}.'.format(epoch, instant_score)
             fredt5_logger.info(info_msg)
         if cur_score > best_score:
             best_score = cur_score

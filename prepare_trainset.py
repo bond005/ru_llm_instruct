@@ -117,15 +117,32 @@ def main():
 
     if args.few_shot:
         try:
-            data_for_training = add_few_shot_tasks(data_for_training)
+            data_for_fewshot_training = add_few_shot_tasks(data_for_training)
         except Exception as err:
             fredt5_trainset_logger.error(str(err))
             raise
+        data_for_training['few-shot'] = data_for_fewshot_training
+        del data_for_fewshot_training
+        tasks_for_training.append('few-shot')
         n_training_samples = 0
         for cur_task in tasks_for_training:
             n_training_samples += len(data_for_training[cur_task])
-        info_msg = (f'The few-shot examples are added. The total number of training samples '
+        info_msg = (f'The few-shot examples are added into the training set. The total number of training samples '
                     f'after the training set extension is {n_training_samples}.')
+        fredt5_trainset_logger.info(info_msg)
+        try:
+            data_for_fewshot_validation = add_few_shot_tasks(data_for_validation)
+        except Exception as err:
+            fredt5_trainset_logger.error(str(err))
+            raise
+        data_for_validation['few-shot'] = data_for_fewshot_validation
+        tasks_for_validation.append('few-shot')
+        del data_for_fewshot_validation
+        n_validation_samples = 0
+        for cur_task in tasks_for_validation:
+            n_validation_samples += len(data_for_validation[cur_task])
+        info_msg = (f'The few-shot examples are added into the validation set. The total number of validation samples '
+                    f'after the validation set extension is {n_validation_samples}.')
         fredt5_trainset_logger.info(info_msg)
 
     with codecs.open(structured_dataset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
