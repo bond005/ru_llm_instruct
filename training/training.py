@@ -334,7 +334,9 @@ def add_few_shot_tasks(few_shot: Dict[str, List[Tuple[str, str]]],
         'ner_person',
         'ner_organization',
         'simplification',
-        'toxicity_detection'
+        'toxicity_detection',
+        'logical_inference',
+        'paraphrase_generation'
     }
     MAX_CHARACTERS_IN_INPUT = 3500
     MIN_SAMPLES_PER_TASK = 6
