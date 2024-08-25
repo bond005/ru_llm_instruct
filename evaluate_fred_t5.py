@@ -9,6 +9,7 @@ import sys
 
 import numpy as np
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, GenerationConfig
+from transformers import LongformerTokenizerFast, LongformerModel
 import torch
 
 from instructions.instructions import evaluate
@@ -48,6 +49,9 @@ def main():
     parser.add_argument('--dtype', dest='dtype', required=False, default='float32', type=str,
                         choices=['float32', 'float16', 'bfloat16', 'bf16', 'fp16', 'fp32'],
                         help='The PyTorch tensor type for inference.')
+    parser.add_argument('--eval_model', dest='eval_model', type=str, required=False,
+                        default='kazzand/ru-longformer-tiny-16384',
+                        help='The Longformer model for BERT score.')
     args = parser.parse_args()
 
     report_name = os.path.normpath(args.output_report_name)
@@ -89,6 +93,17 @@ def main():
         err_msg = f'The directory {fredt5_name} does not exist!'
         fredt5_logger.error(err_msg)
         raise ValueError(err_msg)
+
+    try:
+        scorer = (
+            LongformerTokenizerFast.from_pretrained(args.eval_model),
+            LongformerModel.from_pretrained(args.eval_model)
+        )
+    except Exception as err:
+        err_msg = f'The evaluator for BERT score cannot be loaded from {args.eval_model}. {str(err)}'
+        fredt5_logger.error(err_msg)
+        raise
+    fredt5_logger.info(f'The evaluator for BERT score is loaded from {args.eval_model}.')
 
     united_text_corpus = []
     max_text_len = 0
@@ -201,7 +216,7 @@ def main():
 
     try:
         best_score, results_by_tasks = evaluate(data_for_validation,
-                                                tokenizer, generation_config, model, minibatch_size)
+                                                tokenizer, generation_config, model, minibatch_size, scorer)
     except Exception as err:
         fredt5_logger.error(str(err))
         raise
