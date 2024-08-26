@@ -1,7 +1,7 @@
 import math
 from multiprocessing import Pool
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from nltk.translate.chrf_score import sentence_chrf
 import numpy as np
@@ -470,8 +470,8 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                       config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
-                      evaluator: Tuple[LongformerTokenizerFast, LongformerModel]) -> (
-        Tuple)[float, List[Dict[str, str]]]:
+                      evaluator: Tuple[LongformerTokenizerFast, LongformerModel],
+                      max_time: Optional[float] = None) -> Tuple[float, List[Dict[str, str]]]:
     if len(data_for_validation) < 1:
         raise ValueError(f'The validation data are empty!')
     printed_results = []
@@ -483,7 +483,7 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         batch_end = min(len(data_for_validation), batch_start + minibatch)
         input_texts = [it[0] for it in data_for_validation[batch_start:batch_end]]
         target_texts = [process_target(it[1]) for it in data_for_validation[batch_start:batch_end]]
-        predicted_texts = generate_answer(input_texts, tokenizer, config, model)
+        predicted_texts = generate_answer(input_texts, tokenizer, config, model, max_time)
         for input_, target_, predicted_ in zip(input_texts, target_texts, predicted_texts):
             candidates.append(predicted_)
             if len(target_) == 0:

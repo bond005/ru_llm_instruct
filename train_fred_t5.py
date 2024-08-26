@@ -25,6 +25,7 @@ from instructions.instructions import evaluate_any_task
 fredt5_training_logger = logging.getLogger(__name__)
 NEGATIVE_ANSWER_1 = 'к сожалению я не могу ответить на ваш вопрос'
 NEGATIVE_ANSWER_2 = 'в этом тексте нет именованных сущностей такого типа'
+MAX_GENERATION_TIME: float = 2.0
 RANDOM_SEED: int = 42
 
 
@@ -464,7 +465,8 @@ def main():
             try:
                 eval_score, results_by_tasks = evaluate_any_task(data_for_validation[task],
                                                                  tokenizer, generation_config, model,
-                                                                 eval_minibatch_size, scorer)
+                                                                 eval_minibatch_size, scorer,
+                                                                 max_time=MAX_GENERATION_TIME)
             except Exception as err:
                 fredt5_training_logger.error(str(err))
                 raise
@@ -541,7 +543,8 @@ def main():
             try:
                 eval_score, results_by_tasks = evaluate_any_task(data_for_validation[task],
                                                                  tokenizer, generation_config, model,
-                                                                 eval_minibatch_size, scorer)
+                                                                 eval_minibatch_size, scorer,
+                                                                 max_time=MAX_GENERATION_TIME)
             except Exception as err:
                 fredt5_training_logger.error(str(err))
                 raise
