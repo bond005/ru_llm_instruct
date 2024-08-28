@@ -91,6 +91,10 @@ def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]
             else:
                 input_text = augmented_input
             target_text = selected_sample[1]
+        if not target_text.endswith('</s>'):
+            err_msg = f'The target text of the sample is wrong! ' \
+                      f'Input: {" ".join(input_text.split())}, Target: {" ".join(target_text.split())}'
+            raise RuntimeError(err_msg)
         samples_for_batch.append((
             tokenizer.encode(input_text),
             tokenizer.encode(target_text)
