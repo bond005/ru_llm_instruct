@@ -1,3 +1,4 @@
+import random
 from typing import List, Tuple, Union
 
 from nltk import wordpunct_tokenize
@@ -118,3 +119,60 @@ def split_long_text(long_text: str, maxlen: int, nlp: Language) -> List[Tuple[in
         shorter_texts += list(map(lambda it: (it[0] + middle_char_idx, it[1] + middle_char_idx),
                                   split_long_text(long_text[middle_char_idx:], maxlen, nlp)))
     return shorter_texts
+
+
+def strip_zeros(s: str) -> str:
+    if (not s.endswith('0')) or (len(s) < 2):
+        return s
+    s_ = s[:-1]
+    while len(s_) > 1:
+        if not s_.endswith('0'):
+            break
+        s_ = s_[:-1]
+    if (s_[-1] == '.') or (s_[-1] == ','):
+        s_ = s_[:-1]
+    return s_
+
+
+def generate_arithmetic_sample() -> Tuple[str, str]:
+    variants_of_prompt = [
+        'Посчитай, пожалуйста, сколько будет {inp}?',
+        '{inp}=',
+        '{inp} = ',
+        'Представь себя опытным специалистом по арифметике и посчитай, чему равно {inp}:',
+        'Вычисли {inp}',
+        'Вычисли {inp}=',
+        'Вычисли {inp} = ',
+        'Рассчитай {inp}=',
+        'Подсчитай {inp}=',
+    ]
+    arithmetic_operation = random.choice(['+', '-', '*', '/'])
+    if random.random() > 0.5:
+        first_item = round(200 * (random.random() - 0.5), 6)
+        second_item = round(200 * (random.random() - 0.5), 6)
+    else:
+        first_item = random.randint(-100, 100)
+        second_item = random.randint(-100, 100)
+    if arithmetic_operation == '+':
+        result = first_item + second_item
+    elif arithmetic_operation == '-':
+        result = first_item - second_item
+    elif arithmetic_operation == '*':
+        result = first_item * second_item
+    else:
+        if abs(second_item) < 1e-6:
+            arithmetic_operation = '*'
+            result = first_item * second_item
+        else:
+            result = first_item / second_item
+    result = round(result, 6)
+    input_text = strip_zeros(str(first_item))
+    if random.random() > 0.5:
+        input_text += ' '
+    input_text += arithmetic_operation
+    if random.random() > 0.5:
+        input_text += ' '
+    input_text += strip_zeros(str(second_item))
+    target_text = strip_zeros(str(result))
+    selected_instruction = random.choice(variants_of_prompt).format(inp=input_text)
+    return selected_instruction, target_text

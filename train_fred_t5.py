@@ -20,6 +20,7 @@ from turbot5 import T5ForConditionalGeneration
 import torch
 
 from instructions.instructions import evaluate_any_task
+from utils.utils import generate_arithmetic_sample
 
 
 fredt5_training_logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def calculate_sample_weights(data_for_training: List[Tuple[str, str, bool]]) -> 
 
 
 def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]], sample_weights: List[float],
-                                   tokenizer: GPT2Tokenizer, use_lm_tag: bool, minibatch_size: int,
+                                   tokenizer: GPT2Tokenizer, arithmetics: bool, use_lm_tag: bool, minibatch_size: int,
                                    existed_texts: Union[Set[str], None] = None,
                                    augmenters: Union[List[CharAug], None] = None) -> List[Tuple[List[int], List[int]]]:
     selected_samples = random.choices(
@@ -77,15 +78,22 @@ def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]
     )
     samples_for_batch = []
     for selected_sample in selected_samples:
-        source_input = selected_sample[0]
-        if augmenters is not None:
-            augmented_input = augment_text(source_input, augmenters, use_lm_tag, existed_texts)
+        if arithmetics and (random.random() < 0.05):
+            input_text, target_text = generate_arithmetic_sample()
         else:
-            augmented_input = None
-        target = selected_sample[1]
+            source_input = selected_sample[0]
+            if augmenters is not None:
+                augmented_input = augment_text(source_input, augmenters, use_lm_tag, existed_texts)
+            else:
+                augmented_input = None
+            if augmented_input is None:
+                input_text = source_input
+            else:
+                input_text = augmented_input
+            target_text = selected_sample[1]
         samples_for_batch.append((
-            tokenizer.encode(source_input if augmented_input is None else augmented_input),
-            tokenizer.encode(target)
+            tokenizer.encode(input_text),
+            tokenizer.encode(target_text)
         ))
     del selected_samples
     return samples_for_batch
@@ -140,6 +148,8 @@ def main():
                         help='The iterations per epoch.')
     parser.add_argument('--no_pre_eval', dest='no_pre_eval', action='store_true', required=False,
                         help='The preliminary evaluation (before training) is not realized.')
+    parser.add_argument('--arithmetics', dest='arithmetics', action='store_true', required=False,
+                        help='Do you want to add arithmetic possibility into the training set?')
     parser.add_argument('--random', dest='random_seed', type=int, required=False, default=RANDOM_SEED,
                         help='The random seed.')
     args = parser.parse_args()
