@@ -94,6 +94,7 @@ def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]
         if not target_text.endswith('</s>'):
             err_msg = f'The target text of the sample is wrong! ' \
                       f'Input: {" ".join(input_text.split())}, Target: {" ".join(target_text.split())}'
+            fredt5_training_logger.error(err_msg)
             raise RuntimeError(err_msg)
         samples_for_batch.append((
             tokenizer.encode(input_text),
