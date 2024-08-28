@@ -173,6 +173,6 @@ def generate_arithmetic_sample() -> Tuple[str, str]:
     if random.random() > 0.5:
         input_text += ' '
     input_text += strip_zeros(str(second_item))
-    target_text = strip_zeros(str(result))
+    target_text = strip_zeros(str(result)) + '</s>'
     selected_instruction = random.choice(variants_of_prompt).format(inp=input_text)
     return selected_instruction, target_text
