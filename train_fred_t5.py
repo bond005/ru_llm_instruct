@@ -496,6 +496,7 @@ def main():
         for _ in trange(n_training_batches):
             samples_in_batch = generate_samples_for_minibatch(
                 data_for_training, sample_weights, tokenizer,
+                arithmetics=args.arithmetics,
                 augmenters=augmenters_list, existed_texts=all_existed_texts,
                 use_lm_tag=not args.no_lm_tag, minibatch_size=minibatch_size
             )
