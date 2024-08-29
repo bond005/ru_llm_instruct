@@ -20,7 +20,7 @@ from turbot5 import T5ForConditionalGeneration
 import torch
 
 from instructions.instructions import evaluate_any_task
-from utils.utils import generate_arithmetic_sample
+from utils.utils import generate_arithmetic_sample, generate_sample_with_choice, generate_sample_with_comparison
 
 
 fredt5_training_logger = logging.getLogger(__name__)
@@ -78,8 +78,14 @@ def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]
     )
     samples_for_batch = []
     for selected_sample in selected_samples:
-        if arithmetics and (random.random() < 0.05):
-            input_text, target_text = generate_arithmetic_sample()
+        random_value = random.random()
+        if arithmetics and (random_value < 0.15):
+            if random_value < 0.05:
+                input_text, target_text = generate_arithmetic_sample()
+            elif random_value < 0.10:
+                input_text, target_text = generate_sample_with_comparison()
+            else:
+                input_text, target_text = generate_sample_with_choice()
         else:
             source_input = selected_sample[0]
             if augmenters is not None:

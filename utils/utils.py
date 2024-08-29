@@ -145,6 +145,10 @@ def generate_arithmetic_sample() -> Tuple[str, str]:
         'Вычисли {inp} = ',
         'Рассчитай {inp}=',
         'Подсчитай {inp}=',
+        'Сколько будет {inp}?',
+        'Сколько будет {inp} =',
+        'Сколько будет {inp}=',
+        'Сколько будет {inp} ?'
     ]
     arithmetic_operation = random.choice(['+', '-', '*', '/'])
     if random.random() > 0.5:
@@ -176,3 +180,173 @@ def generate_arithmetic_sample() -> Tuple[str, str]:
     target_text = strip_zeros(str(result)) + '</s>'
     selected_instruction = random.choice(variants_of_prompt).format(inp=input_text)
     return selected_instruction, target_text
+
+
+def generate_sample_with_comparison() -> Tuple[str, str]:
+    variants_of_promt = [
+        'Какое из чисел {op}: {a} или {b}?',
+        'Ответь, какое из двух чисел {op}: {a} или же {b}?',
+        'Как ты думаешь, какое из двух чисел {op}: {a} или, может быть, {b}?',
+        'Подскажи, какое из чисел {op}: {a} или же {b}?',
+        'Подскажи, пожалуйста, какое из двух чисел {op}: {a} или же {b}?',
+        'Как ты считаешь, какое из чисел {op}: {a} или, может быть, {b}?'
+    ]
+    operation = random.choice(['больше', 'меньше', 'min', 'max', 'minimum', 'maximum'])
+    first_value = random.randint(-200, 200)
+    second_value = random.randint(-200, 200)
+    while second_value == first_value:
+        second_value = random.randint(-200, 200)
+    if operation in {'больше', 'max', 'maximum'}:
+        target_text = str(max(first_value, second_value))
+    else:
+        target_text = str(min(first_value, second_value))
+    if operation in {'больше', 'меньше'}:
+        input_text = random.choice(variants_of_promt).format(op=operation, a=first_value, b=second_value)
+    else:
+        input_text = operation
+        if random.random() > 0.5:
+            input_text += ' '
+        input_text += '('
+        if random.random() > 0.5:
+            input_text += ' '
+        input_text += str(first_value)
+        if random.random() > 0.5:
+            input_text += ' '
+        input_text += ','
+        if random.random() > 0.5:
+            input_text += ' '
+        input_text += str(second_value)
+        if random.random() > 0.5:
+            input_text += ' '
+        input_text += ')'
+        if random.random() > 0.5:
+            input_text += ' '
+        if random.random() > 0.3:
+            if random.random() > 0.5:
+                input_text += '='
+                if random.random() > 0.5:
+                    input_text += ' '
+                if random.random() > 0.5:
+                    input_text += '?'
+            else:
+                input_text += '?'
+                if random.random() > 0.5:
+                    input_text += ' '
+    return input_text, target_text
+
+
+def generate_sample_with_choice() -> Tuple[str, str]:
+    variants_of_prompt = [
+        'Дан массив чисел {arr}. Подскажи, пожалуйста, какое число в этом массиве самое {op}?',
+        'У тебя есть список чисел {arr}. Определи, какое число в этом списке самое {op}?',
+        'Определи в массиве {arr}, какое из чисел самое {op}?',
+        'Определи в списке чисел {arr}, какое из них самое {op}?',
+        'Посмотри на набор чисел {arr} и выясни, какое из них самое {op}?',
+        'Проанализируй выборку чисел {arr}. Какое из этих чисел самое {op}?',
+        'Есть список чисел {arr}. Какое число в этом списке самое {op}?',
+        'У тебя есть массив чисел {arr}. Определи, какое число в этом массиве самое {op}?',
+        'Определи в последовательности {arr}, какое из приведённых чисел самое {op}?',
+        'Определи в наборе чисел {arr}, какое самое {op}?',
+        'Посмотри на множество чисел {arr} и выясни, какое из этих чисел самое {op}?',
+        'Проанализируй множество чисел {arr}. Какое из данных чисел самое {op}?'
+    ]
+    variants_of_question_2_4 = [
+        'У тебя есть {n} варианта ответа. Какой из них - правильный? Запиши только букву верного варианта: {vars}.',
+        'Перечислено {n} варианта ответа. Какой из вариантов является правильным? Запиши только одну букву {vars}.',
+        'Из {n} возможных вариантов ответа выбери правильный и запиши одной буквой: {vars}.'
+    ]
+    variants_of_question_5_n = [
+        'У тебя есть {n} вариантов ответа. Какой из них - правильный? Запиши только букву верного варианта: {vars}.',
+        'Перечислено {n} вариантов ответа. Какой из вариантов является правильным? Запиши только одну букву {vars}.',
+        'Из {n} возможных вариантов ответа выбери правильный и запиши одной буквой: {vars}.'
+    ]
+    array_size = random.randint(5, 20)
+    integer_array = [random.randint(-200, 200) for _ in range(array_size)]
+    if random.random() > 0.5:
+        comparison = 'большое'
+        true_value = max(integer_array)
+    else:
+        comparison = 'маленькое'
+        true_value = min(integer_array)
+    if random.random() > 0.5:
+        array_as_string = ','.join([str(x) for x in integer_array])
+    else:
+        array_as_string = ', '.join([str(x) for x in integer_array])
+    if random.random() > 0.5:
+        array_as_string_ = '['
+        if random.random() > 0.5:
+            array_as_string_ += ' '
+        array_as_string_ += array_as_string
+        if random.random() > 0.5:
+            array_as_string_ += ' '
+        array_as_string_ += ']'
+        array_as_string = array_as_string_
+        del array_as_string_
+    input_text = random.choice(variants_of_prompt).format(arr=array_as_string, op=comparison)
+    if random.random() > 0.5:
+        input_text += ' '
+    else:
+        input_text += '\n'
+    number_of_variants = random.randint(2, min(6, array_size - 2))
+    letters = ['A', 'B', 'C', 'D', 'E', 'F'][:number_of_variants]
+    if random.random() > 0.5:
+        letters_as_string = ','.join(letters[:(number_of_variants - 1)])
+    else:
+        letters_as_string = ', '.join(letters[:(number_of_variants - 1)])
+    letters_as_string += ' или ' + letters[number_of_variants - 1]
+    if number_of_variants > 4:
+        input_text += random.choice(variants_of_question_5_n).format(n=number_of_variants, vars=letters_as_string)
+    else:
+        input_text += random.choice(variants_of_question_2_4).format(n=number_of_variants, vars=letters_as_string)
+    if random.random() > 0.5:
+        input_text += ' Варианты ответа:'
+    else:
+        input_text += '\nВарианты ответа:'
+    variants = random.sample(population=integer_array, k=number_of_variants)
+    try:
+        true_idx = variants.index(true_value)
+    except:
+        true_idx = -1
+    if (random.random() > 0.3) or (number_of_variants < 3):
+        if true_idx < 0:
+            variants.remove(random.choice(variants))
+            variants.append(true_value)
+            random.shuffle(variants)
+            true_idx = variants.index(true_value)
+        if random.random() > 0.5:
+            input_text += '\n' + '\n'.join([f'{letters[idx]}. {val}' for idx, val in enumerate(variants)])
+        else:
+            input_text += ' ' + ' '.join([f'{letters[idx]}. {val}' for idx, val in enumerate(variants)])
+        target_text = letters[true_idx]
+    else:
+        while true_idx >= 0:
+            variants.remove(true_value)
+            variants.append(random.choice(integer_array))
+            try:
+                true_idx = variants.index(true_value)
+            except:
+                true_idx = -1
+        true_idx = random.randint(0, number_of_variants - 1)
+        if random.random() > 0.5:
+            input_text += '\n' + '\n'.join(
+                [f'{letters[idx]}. {val if (idx != true_idx) else "здесь нет правильного ответа"}'
+                 for idx, val in enumerate(variants)]
+            )
+        else:
+            input_text += ' ' + ' '.join(
+                [f'{letters[idx]}. {val if (idx != true_idx) else "здесь нет правильного ответа"}'
+                 for idx, val in enumerate(variants)]
+            )
+        target_text = letters[true_idx]
+    if random.random() > 0.5:
+        if random.random() > 0.5:
+            input_text += ' '
+        else:
+            input_text += '\n'
+        if random.random() > 0.5:
+            input_text += 'Ответ:'
+        else:
+            input_text += 'Твой ответ:'
+        if random.random() > 0.5:
+            input_text += ' '
+    return input_text, target_text
