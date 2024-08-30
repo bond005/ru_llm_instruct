@@ -16,7 +16,7 @@ import bitsandbytes as bnb
 from datasets import load_dataset
 from nltk import wordpunct_tokenize
 import numpy as np
-from tqdm import trange
+from tqdm import trange, tqdm
 from transformers import GPT2Tokenizer, GenerationConfig
 from transformers import LongformerTokenizerFast, LongformerModel
 from turbot5 import T5ForConditionalGeneration
@@ -196,7 +196,6 @@ def generate_answer_choice_on_stackoverflow(sample: Dict[str, List[Dict[str, Uni
     return input_text, target_text
 
 
-
 def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]], sample_weights: List[float],
                                    tokenizer: GPT2Tokenizer, arithmetics: bool, use_lm_tag: bool, minibatch_size: int,
                                    stackoverflow_data: Optional[Dict[str, List[Dict[str, \
@@ -349,6 +348,12 @@ def main():
         stackoverflow_data_for_training = stackoverflow_data['train']
         stackoverflow_data_for_validation = stackoverflow_data['validation']
         del stackoverflow_data
+        info_msg = f'The number of stackoverflow samples for training is ' \
+                   f'{len(stackoverflow_data_for_training["question_and_answer"])}.'
+        fredt5_training_logger.info(info_msg)
+        info_msg = f'The number of stackoverflow samples for training with multiply choice is ' \
+                   f'{len(stackoverflow_data_for_training["question_and_many_answers"])}.'
+        fredt5_training_logger.info(info_msg)
 
     minibatch_size = args.batch_size
     if minibatch_size <= 0:
@@ -411,6 +416,42 @@ def main():
         fredt5_training_logger.error((str(err)))
         raise
     fredt5_training_logger.info(f'The pre-trained tokenizer "{os.path.basename(pretrained_dir_name)}" is loaded.')
+
+    if args.maxtokens is not None:
+        stackoverflow_data_for_training = {
+            'question_and_answer': list(filter(
+                lambda x: len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer'])) <=
+                          args.maxtokens,
+                tqdm(stackoverflow_data_for_training['question_and_answer'])
+            )),
+            'question_and_many_answers': list(filter(
+                lambda y: len(tokenizer.tokenize(y['question'])) <= args.maxtokens // 3,
+                tqdm(stackoverflow_data_for_training['question_and_many_answers'])
+            ))
+        }
+        info_msg = f'The number of filtered stackoverflow samples for training is ' \
+                   f'{len(stackoverflow_data_for_training["question_and_answer"])}.'
+        fredt5_training_logger.info(info_msg)
+        info_msg = f'The number of filtered stackoverflow samples for training with multiply choice is ' \
+                   f'{len(stackoverflow_data_for_training["question_and_many_answers"])}.'
+        fredt5_training_logger.info(info_msg)
+        stackoverflow_data_for_validation = {
+            'question_and_answer': list(filter(
+                lambda x: len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer'])) <=
+                          args.maxtokens,
+                stackoverflow_data_for_validation['question_and_answer']
+            )),
+            'question_and_many_answers': list(filter(
+                lambda y: len(tokenizer.tokenize(y['question'])) <= args.maxtokens // 3,
+                stackoverflow_data_for_validation['question_and_many_answers']
+            ))
+        }
+        info_msg = f'The number of filtered stackoverflow samples for validation is ' \
+                   f'{len(stackoverflow_data_for_validation["question_and_answer"])}.'
+        fredt5_training_logger.info(info_msg)
+        info_msg = f'The number of filtered stackoverflow samples for validation with multiply choice is ' \
+                   f'{len(stackoverflow_data_for_validation["question_and_many_answers"])}.'
+        fredt5_training_logger.info(info_msg)
 
     try:
         trainset = load_dataset(dataset_path, split='train')
