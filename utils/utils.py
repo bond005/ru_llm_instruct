@@ -232,7 +232,7 @@ def generate_sample_with_comparison() -> Tuple[str, str]:
                 input_text += '?'
                 if random.random() > 0.5:
                     input_text += ' '
-    return input_text, target_text
+    return input_text, target_text + '</s>'
 
 
 def generate_sample_with_choice() -> Tuple[str, str]:
@@ -349,4 +349,4 @@ def generate_sample_with_choice() -> Tuple[str, str]:
             input_text += 'Твой ответ:'
         if random.random() > 0.5:
             input_text += ' '
-    return input_text, target_text
+    return input_text, target_text + '</s>'

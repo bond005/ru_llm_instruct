@@ -1,11 +1,14 @@
 from argparse import ArgumentParser
+import codecs
 import gc
+import json
 import logging
 import os
 import random
 import sys
-from typing import List, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 import warnings
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 from augmentex.char import CharAug
@@ -67,10 +70,139 @@ def calculate_sample_weights(data_for_training: List[Tuple[str, str, bool]]) -> 
     return sample_weights
 
 
+def generate_answer_choice_on_stackoverflow(sample: Dict[str, List[Dict[str, Union[str, int]]]]) -> Tuple[str, str]:
+    variants_of_prompt = [
+        'Прочитай, пожалуйста, вопрос по программированию и выбери наиболее правильный вариант ответа.',
+        'Прочитай вопрос по программной инженерии и выбери самый близкий к правде вариант ответа.',
+        'Из всех вариантов ответа на вопрос выбери тот, который ближе всего к истине.',
+        'Тебе задают вопрос по теме, связанной с программированием и компьютерами. Вместе с вопросом приведены '
+        'варианты ответов. Какой из этих вариантов корректнее всего отвечает на вопрос?',
+    ]
+    letters = ['A', 'B', 'C', 'D', 'E']
+    variants_of_answers = sample['answers']
+    if len(variants_of_answers) > len(letters):
+        variants_of_answers = variants_of_answers[:len(letters)]
+    random.shuffle(variants_of_answers)
+    if random.random() > 0.2:
+        if random.random() > 0.5:
+            if random.random() > 0.5:
+                one_letter_msg = ' Запиши только букву верного варианта.'
+            else:
+                one_letter_msg = (' Запиши только букву верного варианта: ' +
+                                  ', '.join([letters[idx] for idx in range(len(variants_of_answers) - 1)]) +
+                                  ' или ' + letters[len(variants_of_answers) - 1])
+        else:
+            one_letter_msg = ''
+        input_text = random.choice(variants_of_prompt)
+        one_letter_before_question = (random.random() > 0.5)
+        if len(one_letter_msg) > 0:
+            if one_letter_before_question:
+                random_value = random.random()
+                if random_value > 0.7:
+                    input_text += ' '
+                elif random_value > 0.3:
+                    input_text += '\n'
+                else:
+                    input_text += '\n\n'
+                input_text += one_letter_msg
+        random_value = random.random()
+        if random_value > 0.7:
+            input_text += ' '
+        elif random_value > 0.3:
+            input_text += '\n'
+        else:
+            input_text += '\n\n'
+        input_text += 'Вопрос:'
+        random_value = random.random()
+        if random_value > 0.7:
+            input_text += ' '
+        elif random_value > 0.3:
+            input_text += '\n'
+        else:
+            input_text += '\n\n'
+        input_text += sample['question']
+        random_value = random.random()
+        if random_value > 0.7:
+            input_text += ' Варианты ответов: ' + ' '.join(
+                [(letters[idx] + '. ' + val['answer']) for idx, val in enumerate(variants_of_answers)]
+            )
+        elif random_value > 0.3:
+            input_text += '\nВарианты ответов:\n' + '\n'.join(
+                [(letters[idx] + '. ' + val['answer']) for idx, val in enumerate(variants_of_answers)]
+            )
+        else:
+            input_text += '\n\nВарианты ответов:\n\n' + '\n\n'.join(
+                [(letters[idx] + '. ' + val['answer']) for idx, val in enumerate(variants_of_answers)]
+            )
+        if len(one_letter_msg) > 0:
+            if not one_letter_before_question:
+                random_value = random.random()
+                if random_value > 0.7:
+                    input_text += ' '
+                elif random_value > 0.3:
+                    input_text += '\n'
+                else:
+                    input_text += '\n\n'
+                input_text += one_letter_msg
+    else:
+        input_text = 'Вопрос:'
+        random_value = random.random()
+        if random_value > 0.7:
+            input_text += ' '
+        elif random_value > 0.3:
+            input_text += '\n'
+        else:
+            input_text += '\n\n'
+        input_text += sample['question']
+        random_value = random.random()
+        if random_value > 0.7:
+            input_text += ' Варианты ответов: ' + ' '.join(
+                [(letters[idx] + '. ' + val['answer']) for idx, val in enumerate(variants_of_answers)]
+            )
+        elif random_value > 0.3:
+            input_text += '\nВарианты ответов:\n' + '\n'.join(
+                [(letters[idx] + '. ' + val['answer']) for idx, val in enumerate(variants_of_answers)]
+            )
+        else:
+            input_text += '\n\nВарианты ответов:\n\n' + '\n\n'.join(
+                [(letters[idx] + '. ' + val['answer']) for idx, val in enumerate(variants_of_answers)]
+            )
+        random_value = random.random()
+        if random_value > 0.7:
+            input_text += ' '
+        elif random_value > 0.3:
+            input_text += '\n'
+        else:
+            input_text += '\n\n'
+        input_text += random.choice([
+            'Какой из ответов самый правильный?',
+            'Какой из ответов ближе всего к истине?',
+            'Какой ответ корректнее?',
+            'Какой ответ вернее?',
+            'Какой из ответов корректнее?'
+        ])
+        if random.random() > 0.5:
+            if random.random() > 0.5:
+                input_text += ' Запиши только букву верного варианта.'
+            else:
+                input_text += (' Запиши только букву верного варианта: ' +
+                               ', '.join([letters[idx] for idx in range(len(variants_of_answers) - 1)]) +
+                               ' или ' + letters[len(variants_of_answers) - 1])
+    true_idx = 0
+    for idx in range(1, len(variants_of_answers)):
+        if variants_of_answers[idx]['score'] > variants_of_answers[true_idx]['score']:
+            true_idx = idx
+    target_text = letters[true_idx] + '</s>'
+    return input_text, target_text
+
+
+
 def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]], sample_weights: List[float],
                                    tokenizer: GPT2Tokenizer, arithmetics: bool, use_lm_tag: bool, minibatch_size: int,
-                                   existed_texts: Union[Set[str], None] = None,
-                                   augmenters: Union[List[CharAug], None] = None) -> List[Tuple[List[int], List[int]]]:
+                                   stackoverflow_data: Optional[Dict[str, List[Dict[str, \
+                                           Union[str, List[Dict[str, Union[int, str]]]]]]]] = None,
+                                   existed_texts: Optional[Set[str]] = None,
+                                   augmenters: Optional[List[CharAug]] = None) -> List[Tuple[List[int], List[int]]]:
     selected_samples = random.choices(
         population=data_for_training,
         weights=sample_weights,
@@ -86,6 +218,17 @@ def generate_samples_for_minibatch(data_for_training: List[Tuple[str, str, bool]
                 input_text, target_text = generate_sample_with_comparison()
             else:
                 input_text, target_text = generate_sample_with_choice()
+        elif (stackoverflow_data is not None) and (random_value < 0.25):
+            if random.random() > 0.5:
+                stackoverflow_sample = random.choice(stackoverflow_data['question_and_answer'])
+                input_text = stackoverflow_sample['question']
+                target_text = stackoverflow_sample['answer']
+                if not target_text.endswith('</s>'):
+                    target_text += '</s>'
+            else:
+                stackoverflow_sample = random.choice(stackoverflow_data['question_and_many_answers'])
+                input_text, target_text = generate_answer_choice_on_stackoverflow(stackoverflow_sample)
+            del stackoverflow_sample
         else:
             source_input = selected_sample[0]
             if augmenters is not None:
@@ -161,6 +304,9 @@ def main():
                         help='The preliminary evaluation (before training) is not realized.')
     parser.add_argument('--arithmetics', dest='arithmetics', action='store_true', required=False,
                         help='Do you want to add arithmetic possibility into the training set?')
+    parser.add_argument('--stackoverflow', dest='stackoverflow_data', type=str, required=False,
+                        default=None, help='The name of name of JSON file with structured RuStackoverflow for '
+                                           'training and validation.')
     parser.add_argument('--random', dest='random_seed', type=int, required=False, default=RANDOM_SEED,
                         help='The random seed.')
     args = parser.parse_args()
@@ -188,6 +334,21 @@ def main():
             err_msg = f'The iterations per epoch is too small. Expected 2 or greater, got {args.iters_per_epoch}.'
             fredt5_training_logger.error(err_msg)
             raise ValueError(err_msg)
+
+    if args.stackoverflow_data is None:
+        stackoverflow_data_for_training = None
+        stackoverflow_data_for_validation = None
+    else:
+        fname = os.path.normpath(args.stackoverflow_data)
+        if not os.path.isfile(fname):
+            err_msg = f'The file "{fname}" does not exist!'
+            fredt5_training_logger.error(err_msg)
+            raise ValueError(err_msg)
+        with codecs.open(fname, mode='r', encoding='utf-8', errors='ignore') as fp:
+            stackoverflow_data = json.load(fp)
+        stackoverflow_data_for_training = stackoverflow_data['train']
+        stackoverflow_data_for_validation = stackoverflow_data['validation']
+        del stackoverflow_data
 
     minibatch_size = args.batch_size
     if minibatch_size <= 0:
@@ -361,6 +522,45 @@ def main():
                 data_for_validation[task_type] = [(input_text, target_text)]
         all_existed_texts.add(input_text)
     del input_texts, target_texts, task_types, valset
+    if stackoverflow_data_for_validation is not None:
+        if eval_tasks is None:
+            can_add = True
+        else:
+            can_add = ('stackoverflow' in eval_tasks)
+        if can_add:
+            task_type = 'stackoverflow_answer'
+            for it in stackoverflow_data_for_validation['question_and_answer']:
+                input_text = it['question']
+                target_text = it['answer']
+                if args.no_lm_tag:
+                    if input_text.startswith('<LM>'):
+                        input_text = input_text[4:]
+                else:
+                    if not input_text.startswith('<LM>'):
+                        input_text = '<LM>' + input_text
+                if not target_text.endswith('</s>'):
+                    target_text += '</s>'
+                if task_type in data_for_validation:
+                    data_for_validation[task_type].append((input_text, target_text))
+                else:
+                    data_for_validation[task_type] = [(input_text, target_text)]
+                all_existed_texts.add(input_text)
+            task_type = 'stackoverflow_choice'
+            for it in stackoverflow_data_for_validation['question_and_many_answers']:
+                input_text, target_text = generate_answer_choice_on_stackoverflow(it)
+                if args.no_lm_tag:
+                    if input_text.startswith('<LM>'):
+                        input_text = input_text[4:]
+                else:
+                    if not input_text.startswith('<LM>'):
+                        input_text = '<LM>' + input_text
+                if not target_text.endswith('</s>'):
+                    target_text += '</s>'
+                if task_type in data_for_validation:
+                    data_for_validation[task_type].append((input_text, target_text))
+                else:
+                    data_for_validation[task_type] = [(input_text, target_text)]
+                all_existed_texts.add(input_text)
     tasks = sorted(list(data_for_validation.keys()))
     fredt5_training_logger.info(f'There are {len(tasks)} validation task types.')
 
@@ -509,7 +709,8 @@ def main():
                 data_for_training, sample_weights, tokenizer,
                 arithmetics=args.arithmetics,
                 augmenters=augmenters_list, existed_texts=all_existed_texts,
-                use_lm_tag=not args.no_lm_tag, minibatch_size=minibatch_size
+                use_lm_tag=not args.no_lm_tag, minibatch_size=minibatch_size,
+                stackoverflow_data=stackoverflow_data_for_training
             )
             for input_sequence, output_sequence in samples_in_batch:
                 x_input_ids_ = [torch.tensor(input_sequence, dtype=torch.long)]
