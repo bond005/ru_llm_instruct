@@ -417,7 +417,8 @@ def main():
         raise
     fredt5_training_logger.info(f'The pre-trained tokenizer "{os.path.basename(pretrained_dir_name)}" is loaded.')
 
-    if args.maxtokens is not None:
+    if ((args.maxtokens is not None) and (stackoverflow_data_for_training is not None) and
+            (stackoverflow_data_for_validation is not None)):
         stackoverflow_data_for_training = {
             'question_and_answer': list(filter(
                 lambda x: (len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer']))) <=
