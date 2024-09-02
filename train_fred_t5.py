@@ -420,12 +420,14 @@ def main():
     if args.maxtokens is not None:
         stackoverflow_data_for_training = {
             'question_and_answer': list(filter(
-                lambda x: len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer'])) <=
-                          args.maxtokens,
+                lambda x: (len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer']))) <=
+                          (args.maxtokens // 3),
                 tqdm(stackoverflow_data_for_training['question_and_answer'])
             )),
             'question_and_many_answers': list(filter(
-                lambda y: len(tokenizer.tokenize(y['question'])) <= args.maxtokens // 3,
+                lambda y: len(tokenizer.tokenize(y['question'])) +
+                          sum(map(lambda z: len(tokenizer.tokenize(z['answer'])), y['answers'])) <=
+                          (args.maxtokens // 3),
                 tqdm(stackoverflow_data_for_training['question_and_many_answers'])
             ))
         }
@@ -437,13 +439,15 @@ def main():
         fredt5_training_logger.info(info_msg)
         stackoverflow_data_for_validation = {
             'question_and_answer': list(filter(
-                lambda x: len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer'])) <=
+                lambda x: (len(tokenizer.tokenize(x['question'])) + len(tokenizer.tokenize(x['answer']))) <=
                           args.maxtokens,
                 stackoverflow_data_for_validation['question_and_answer']
             )),
             'question_and_many_answers': list(filter(
-                lambda y: len(tokenizer.tokenize(y['question'])) <= args.maxtokens // 3,
-                stackoverflow_data_for_validation['question_and_many_answers']
+                lambda y: len(tokenizer.tokenize(y['question'])) +
+                          sum(map(lambda z: len(tokenizer.tokenize(z['answer'])), y['answers'])) <=
+                          ((2 * args.maxtokens) // 3),
+                tqdm(stackoverflow_data_for_validation['question_and_many_answers'])
             ))
         }
         info_msg = f'The number of filtered stackoverflow samples for validation is ' \
