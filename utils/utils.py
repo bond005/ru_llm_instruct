@@ -253,12 +253,12 @@ def generate_sample_with_choice() -> Tuple[str, str]:
     variants_of_question_2_4 = [
         'У тебя есть {n} варианта ответа. Какой из них - правильный? Запиши только букву верного варианта: {vars}.',
         'Перечислено {n} варианта ответа. Какой из вариантов является правильным? Запиши только одну букву {vars}.',
-        'Из {n} возможных вариантов ответа выбери правильный и запиши одной буквой: {vars}.'
+        'Из {n} возможных вариантов ответа выбери правильный и запиши {vars}.'
     ]
     variants_of_question_5_n = [
         'У тебя есть {n} вариантов ответа. Какой из них - правильный? Запиши только букву верного варианта: {vars}.',
         'Перечислено {n} вариантов ответа. Какой из вариантов является правильным? Запиши только одну букву {vars}.',
-        'Из {n} возможных вариантов ответа выбери правильный и запиши одной буквой: {vars}.'
+        'Из {n} возможных вариантов ответа выбери правильный и запиши {vars}.'
     ]
     array_size = random.randint(5, 20)
     integer_array = [random.randint(-200, 200) for _ in range(array_size)]
@@ -288,16 +288,28 @@ def generate_sample_with_choice() -> Tuple[str, str]:
     else:
         input_text += '\n'
     number_of_variants = random.randint(2, min(6, array_size - 2))
-    letters = ['A', 'B', 'C', 'D', 'E', 'F'][:number_of_variants]
     if random.random() > 0.5:
-        letters_as_string = ','.join(letters[:(number_of_variants - 1)])
+        full_identifiers_of_choice = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+                                      'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+        is_choice_letter = True
     else:
-        letters_as_string = ', '.join(letters[:(number_of_variants - 1)])
-    letters_as_string += ' или ' + letters[number_of_variants - 1]
+        full_identifiers_of_choice = [str(val) for val in range(1, 101)]
+        is_choice_letter = False
+
+    identifiers_of_choice = random.sample(population=full_identifiers_of_choice, k=number_of_variants)
+    if random.random() > 0.5:
+        identifiers_as_string = ','.join(identifiers_of_choice[:(number_of_variants - 1)])
+    else:
+        identifiers_as_string = ', '.join(identifiers_of_choice[:(number_of_variants - 1)])
+    identifiers_as_string += ' или ' + identifiers_of_choice[number_of_variants - 1]
+    if is_choice_letter:
+        identifiers_as_string = 'одной буквой: ' + identifiers_as_string
+    else:
+        identifiers_as_string = 'одним числом: ' + identifiers_as_string
     if number_of_variants > 4:
-        input_text += random.choice(variants_of_question_5_n).format(n=number_of_variants, vars=letters_as_string)
+        input_text += random.choice(variants_of_question_5_n).format(n=number_of_variants, vars=identifiers_as_string)
     else:
-        input_text += random.choice(variants_of_question_2_4).format(n=number_of_variants, vars=letters_as_string)
+        input_text += random.choice(variants_of_question_2_4).format(n=number_of_variants, vars=identifiers_as_string)
     if random.random() > 0.5:
         input_text += ' Варианты ответа:'
     else:
@@ -313,11 +325,8 @@ def generate_sample_with_choice() -> Tuple[str, str]:
             variants.append(true_value)
             random.shuffle(variants)
             true_idx = variants.index(true_value)
-        if random.random() > 0.5:
-            input_text += '\n' + '\n'.join([f'{letters[idx]}. {val}' for idx, val in enumerate(variants)])
-        else:
-            input_text += ' ' + ' '.join([f'{letters[idx]}. {val}' for idx, val in enumerate(variants)])
-        target_text = letters[true_idx]
+        input_text += '\n' + '\n'.join([f'{identifiers_of_choice[idx]}. {val}' for idx, val in enumerate(variants)])
+        target_text = identifiers_of_choice[true_idx]
     else:
         while true_idx >= 0:
             variants.remove(true_value)
@@ -327,22 +336,13 @@ def generate_sample_with_choice() -> Tuple[str, str]:
             except:
                 true_idx = -1
         true_idx = random.randint(0, number_of_variants - 1)
-        if random.random() > 0.5:
-            input_text += '\n' + '\n'.join(
-                [f'{letters[idx]}. {val if (idx != true_idx) else "здесь нет правильного ответа"}'
-                 for idx, val in enumerate(variants)]
-            )
-        else:
-            input_text += ' ' + ' '.join(
-                [f'{letters[idx]}. {val if (idx != true_idx) else "здесь нет правильного ответа"}'
-                 for idx, val in enumerate(variants)]
-            )
-        target_text = letters[true_idx]
+        input_text += '\n' + '\n'.join(
+            [f'{identifiers_of_choice[idx]}. {val if (idx != true_idx) else "здесь нет правильного ответа"}'
+             for idx, val in enumerate(variants)]
+        )
+        target_text = identifiers_of_choice[true_idx]
     if random.random() > 0.5:
-        if random.random() > 0.5:
-            input_text += ' '
-        else:
-            input_text += '\n'
+        input_text += '\n'
         if random.random() > 0.5:
             input_text += 'Ответ:'
         else:
