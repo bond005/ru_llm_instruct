@@ -96,7 +96,7 @@ def main():
     counter = 1
     with codecs.open(destination_dataset_fname, mode='w', encoding='utf-8', buffering=0) as fp:
         data_writer = csv.writer(fp, delimiter=',', quotechar='"')
-        data_writer.writerow(list(true_header) + ['TRANSLATION_SCORE'])
+        data_writer.writerow(['INSTRUCTION_EN', 'RESPONSE_EN', 'INSTRUCTION_RU', 'RESPONSE_RU', 'TRANSLATION_SCORE'])
         for instruction_en, response_en, source in data_samples_with_header[1:]:
             inputs = tokenizer(instruction_en, return_tensors='pt').to(device)
             generated = model.generate(
@@ -115,7 +115,8 @@ def main():
             response_score = float(generated.sequences_scores.cpu().numpy()[0])
             del inputs, generated
             united_score = min(response_score, instruction_score)
-            data_writer.writerow([instruction_ru, response_ru, source, str(round(united_score, 6))])
+            data_writer.writerow([instruction_en, response_en, instruction_ru, response_ru,
+                                  str(round(united_score, 6))])
             if counter % 500 == 0:
                 info_msg = f'{counter} samples from {len(data_samples_with_header) - 1} are translated.'
                 logic_inference_logger.info(info_msg)

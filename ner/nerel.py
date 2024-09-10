@@ -174,8 +174,6 @@ def load_sample(fname: str) -> List[Tuple[str, List[Tuple[str, str, str, str]]]]
         except Exception as err:
             raise ValueError(f'The file "{annotation_fname}" contains a wrong data! ' + str(err))
         cur_doc = nlp(cur_text)
-        prev_dep_tag = ''
-        prev_pos_tag = ''
         for cur_token in cur_doc:
             pos_tag = cur_token.pos_
             dep_tag = cur_token.dep_
@@ -185,16 +183,8 @@ def load_sample(fname: str) -> List[Tuple[str, List[Tuple[str, str, str, str]]]]
             if len(dep_tag) == 0:
                 err_msg = f'The file "{annotation_fname}" contains a wrong data! The text cannot be parsed. {cur_text}'
                 raise ValueError(err_msg)
-            if pos_tag == prev_pos_tag:
-                pos_tag_bio = 'I-' + pos_tag
-            else:
-                pos_tag_bio = 'B-' + pos_tag
-            if dep_tag == prev_dep_tag:
-                dep_tag_bio = 'I-' + dep_tag
-            else:
-                dep_tag_bio = 'B-' + dep_tag
-            prev_dep_tag = dep_tag
-            prev_pos_tag = pos_tag
+            pos_tag_bio = 'B-' + pos_tag
+            dep_tag_bio = 'B-' + dep_tag
             subtoken_bounds = list(map(
                 lambda x: (x[0] + cur_token.idx, x[1] + cur_token.idx),
                 split_into_subtokens(cur_token.text)
