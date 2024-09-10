@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 import codecs
 import csv
 import logging
-import math
 import os
 import random
 import sys
@@ -134,7 +133,7 @@ def main():
         data_writer.writerow(true_header + ['p(Hallucination)'])
         for idx, val in enumerate(source_samples_without_header):
             proba = max(probabilities[idx * 2], probabilities[idx * 2 + 1])
-            data_writer.writerow([val[0], val[1], val[2], val[3], str(round(val[4], 6)), str(round(proba, 6))])
+            data_writer.writerow([val[0], val[1], val[2], val[3], val[4], str(round(proba, 6))])
 
 
 if __name__ == '__main__':
