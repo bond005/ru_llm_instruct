@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 import codecs
+import copy
 import csv
 import logging
 import os
@@ -7,7 +8,9 @@ import random
 import sys
 
 from datasets import Dataset
+from nltk import wordpunct_tokenize
 import numpy as np
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import pipeline
 from transformers.pipelines.pt_utils import KeyDataset
 from tqdm import tqdm
@@ -53,6 +56,8 @@ def main():
                         help='The path to hallucination detector.')
     parser.add_argument('--batch', dest='minibatch_size', type=int, required=False, default=16,
                         help='The mini-batch size.')
+    parser.add_argument('-t', '--type', dest='model_type', type=str, required=True, choices=['gpt', 'roberta'],
+                        help='The model type which is used in the hallucination detector (gpt or roberta).')
     args = parser.parse_args()
 
     source_dataset_path = os.path.normpath(args.input_name)
@@ -84,13 +89,8 @@ def main():
         logic_inference_logger.error(err_msg)
         raise IOError(err_msg)
 
-    hallucination_detector = pipeline(
-        task='text-classification',
-        model=model_name,
-        framework='pt', trust_remote_code=True, device='cuda', torch_dtype=torch.float32
-    )
-
     true_header = ['INSTRUCTION_EN', 'RESPONSE_EN', 'INSTRUCTION_RU', 'RESPONSE_RU', 'TRANSLATION_SCORE']
+    loaded_header = []
     with codecs.open(source_dataset_fname, mode='r', encoding='utf-8', errors='ignore') as fp:
         data_reader = csv.reader(fp, delimiter=',', quotechar='"')
         source_samples = list(filter(lambda it: len(it) > 0, data_reader))
@@ -98,11 +98,17 @@ def main():
             err_msg = f'The file "{source_dataset_fname}" is empty!'
             logic_inference_logger.error(err_msg)
             raise IOError(err_msg)
-        if source_samples[0] != true_header:
+        if len(source_samples[0]) < len(true_header):
             err_msg = (f'The file "{source_dataset_fname}" has a wrong header! '
                        f'Expected {true_header}, got {source_samples[0]}.')
             logic_inference_logger.error(err_msg)
             raise IOError(err_msg)
+        if source_samples[0][:len(true_header)] != true_header:
+            err_msg = (f'The file "{source_dataset_fname}" has a wrong header! '
+                       f'Expected {true_header}, got {source_samples[0]}.')
+            logic_inference_logger.error(err_msg)
+            raise IOError(err_msg)
+        loaded_header = copy.copy(source_samples[0])
         if len(source_samples) < 2:
             err_msg = f'The file "{source_dataset_fname}" is empty!'
             logic_inference_logger.error(err_msg)
@@ -110,30 +116,115 @@ def main():
         source_samples_without_header = source_samples[1:]
     del source_samples
 
-    input_texts = []
-    for instruction_en, response_en, instruction_ru, response_ru, _ in source_samples_without_header:
-        input_texts += [
-            sample_to_str(en_text=instruction_en, ru_text=instruction_ru),
-            sample_to_str(en_text=response_en, ru_text=response_ru)
-        ]
-    input_dataset = Dataset.from_dict({'text': input_texts})
-    del input_texts
+    if args.model_type == 'roberta':
+        hallucination_detector = pipeline(
+            task='text-classification',
+            model=model_name,
+            framework='pt', trust_remote_code=True, device='cuda', torch_dtype=torch.float32
+        )
 
-    probabilities = []
-    for out in tqdm(hallucination_detector(KeyDataset(input_dataset, 'text'), batch_size=args.minibatch_size,
-                                           padding='longest'), total=len(input_dataset)):
-        if out['label'] == 'Hallucination':
-            hallucination_probability = out['score']
-        else:
-            hallucination_probability = 1.0 - out['score']
-        probabilities.append(hallucination_probability)
+        input_texts = []
+        for val in source_samples_without_header:
+            instruction_en = val[0]
+            response_en = val[1]
+            instruction_ru = val[2]
+            response_ru = val[3]
+            input_texts += [
+                sample_to_str(en_text=instruction_en, ru_text=instruction_ru),
+                sample_to_str(en_text=response_en, ru_text=response_ru)
+            ]
+        input_dataset = Dataset.from_dict({'text': input_texts})
+        del input_texts
 
-    with codecs.open(destination_dataset_fname, mode='w', encoding='utf-8', buffering=0) as fp:
-        data_writer = csv.writer(fp, delimiter=',', quotechar='"')
-        data_writer.writerow(true_header + ['p(Hallucination)'])
-        for idx, val in enumerate(source_samples_without_header):
-            proba = max(probabilities[idx * 2], probabilities[idx * 2 + 1])
-            data_writer.writerow([val[0], val[1], val[2], val[3], val[4], str(round(proba, 6))])
+        probabilities = []
+        for out in tqdm(hallucination_detector(KeyDataset(input_dataset, 'text'), batch_size=args.minibatch_size,
+                                               padding='longest'), total=len(input_dataset)):
+            if out['label'] == 'Hallucination':
+                hallucination_probability = out['score']
+            else:
+                hallucination_probability = 1.0 - out['score']
+            probabilities.append(hallucination_probability)
+
+        with codecs.open(destination_dataset_fname, mode='w', encoding='utf-8', buffering=0) as fp:
+            data_writer = csv.writer(fp, delimiter=',', quotechar='"')
+            data_writer.writerow(loaded_header + ['p(Hallucination)'])
+            for idx, val in enumerate(source_samples_without_header):
+                proba = max(probabilities[idx * 2], probabilities[idx * 2 + 1])
+                data_writer.writerow(list(val) + [str(round(proba, 6))])
+    else:
+        device = 'cuda:0'
+        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='auto', device_map='auto')
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        system_prompt = 'You are an experienced professional translator. ' \
+                        'Can you tell me if this translation corresponds to the original text? ' \
+                        'Answer using ONLY yes or no, please. I\'m going to tip $200 for your perfect answer!'
+        user_prompt_template = 'The original text: {en_text}\nThe translation: {ru_text}'
+        with codecs.open(destination_dataset_fname, mode='w', encoding='utf-8', buffering=0) as fp:
+            data_writer = csv.writer(fp, delimiter=',', quotechar='"')
+            data_writer.writerow(loaded_header + ['HALLUCINATION'])
+            for val in tqdm(source_samples_without_header):
+                instruction_en = val[0]
+                response_en = val[1]
+                instruction_ru = val[2]
+                response_ru = val[3]
+                messages = [
+                    {
+                        'role': 'system',
+                        'content': system_prompt
+                    },
+                    {
+                        'role': 'user',
+                        'content': user_prompt_template.format(en_text=instruction_en, ru_text=instruction_ru)
+                    }
+                ]
+                text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                model_inputs = tokenizer([text], return_tensors='pt').to(device)
+                generated_ids = model.generate(
+                    model_inputs.input_ids,
+                    max_new_tokens=512
+                )
+                generated_ids = [
+                    output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+                ]
+                response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                del text, model_inputs, generated_ids, messages
+                words_in_response = set(wordpunct_tokenize(response.lower()))
+                if ('no' in words_in_response) or ('yes' not in words_in_response):
+                    hallucination = True
+                else:
+                    messages = [
+                        {
+                            'role': 'system',
+                            'content': system_prompt
+                        },
+                        {
+                            'role': 'user',
+                            'content': user_prompt_template.format(en_text=response_en, ru_text=response_ru)
+                        }
+                    ]
+                    text = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
+                    )
+                    model_inputs = tokenizer([text], return_tensors='pt').to(device)
+                    generated_ids = model.generate(
+                        model_inputs.input_ids,
+                        max_new_tokens=512
+                    )
+                    generated_ids = [
+                        output_ids[len(input_ids):] for input_ids, output_ids in
+                        zip(model_inputs.input_ids, generated_ids)
+                    ]
+                    response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                    del text, model_inputs, generated_ids, messages
+                    words_in_response = set(wordpunct_tokenize(response.lower()))
+                    hallucination = (('no' in words_in_response) or ('yes' not in words_in_response))
+                data_writer.writerow(list(val) + ['yes' if hallucination else 'no'])
 
 
 if __name__ == '__main__':
