@@ -42,9 +42,12 @@ def generate_answer_with_gigachat(prompt: str, credentials: str) -> str:
     if len(prepared_prompt) == 0:
         gigachat_logger.warning('The input prompt is empty!')
         return ''
+    prompt_ = ('Ты - полезный ассистент, который хорошо умеет понимать тексты на русском языке и отвечать на вопросы '
+               'по этим текстам.\n\n') + prompt
     try:
-        with GigaChat(credentials=credentials, scope='GIGACHAT_API_PERS', verify_ssl_certs=False) as giga:
-            response = giga.chat(prompt.strip())
+        with GigaChat(model='GigaChat-Plus', credentials=credentials, scope='GIGACHAT_API_PERS',
+                      verify_ssl_certs=False) as giga:
+            response = giga.chat(prompt_.strip())
         answer = response.choices[0].message.content.strip()
     except Exception as err:
         answer = ''
@@ -62,7 +65,7 @@ def generate_prompt_for_question_creating(document: str) -> str:
 def generate_prompt_for_answer_creating(document: str, question: str) -> str:
     s = (f'Прочитай, пожалуйста, следующий текст и ответь на вопрос по этому тексту максимально точно и коротко. '
          f'Для ответа на вопрос обязательно используй только знания, полученные при чтении именно этого текста, '
-         f'и больше ничего! Если не можешь ответить, то пиши "Я не знаю."\n\nТекст: {document}\n\n'
+         f'и больше ничего! Если ответа на вопрос нет в тексте, то пиши "Я не знаю."\n\nТекст: {document}\n\n'
          f'Вопрос: {question}\n\nТвой ответ: ')
     return s
 
@@ -70,7 +73,7 @@ def generate_prompt_for_answer_creating(document: str, question: str) -> str:
 def document_to_plain_text(document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]]) -> str:
     s = ''
     for cur_section in document['document']:
-        s += cur_section['section_title'] + '\n\n'
+        s +=  '\n\n' + cur_section['section_title'] + '\n\n'
         s += '\n'.join(cur_section['section_body'])
     return s.strip()
 
@@ -86,9 +89,8 @@ def is_censored(text: str) -> bool:
 
 
 def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]],
-                                         other_document: Dict[str, Union[str, List[Dict[str, Union[str, List[str]]]]]],
                                          credentials: str, full_document: bool = True) -> (
-        Union)[Tuple[Tuple[str, str], Tuple[str, str]], None]:
+        Union)[Tuple[str, str, str], None]:
     selected_section = random.choice(cur_document['document'])
     paragraphs_of_section = ' '.join(selected_section['section_body'])
     question = generate_answer_with_gigachat(
@@ -107,44 +109,11 @@ def prepare_positive_and_negative_sample(cur_document: Dict[str, Union[str, List
         return None
     if is_censored(true_answer):
         return None
-    random_val = random.random()
     if full_document:
         cur_context = cur_document
-        other_context = other_document
     else:
         cur_context = {'document': [selected_section]}
-        other_context = {'document': [random.choice(other_document['document'])]}
-    if random_val < 0.25:
-        positive_input_prompt = f'{question} {document_to_plain_text(cur_context)}'
-    elif random_val < 0.5:
-        if random.random() > 0.5:
-            positive_input_prompt = f'{question}\n{document_to_plain_text(cur_context)}'
-        else:
-            positive_input_prompt = f'{question}\n\n{document_to_plain_text(cur_context)}'
-    elif random_val < 0.75:
-        positive_input_prompt = f'{document_to_plain_text(cur_context)} {question}'
-    else:
-        if random.random() > 0.5:
-            positive_input_prompt = f'{document_to_plain_text(cur_context)}\n{question}'
-        else:
-            positive_input_prompt = f'{document_to_plain_text(cur_context)}\n\n{question}'
-    random_val = random.random()
-    if random_val < 0.25:
-        negative_input_prompt = f'{question} {document_to_plain_text(other_context)}'
-    elif random_val < 0.5:
-        if random.random() > 0.5:
-            negative_input_prompt = f'{question}\n{document_to_plain_text(other_context)}'
-        else:
-            negative_input_prompt = f'{question}\n\n{document_to_plain_text(other_context)}'
-    elif random_val < 0.75:
-        negative_input_prompt = f'{document_to_plain_text(other_context)} {question}'
-    else:
-        if random.random() > 0.5:
-            negative_input_prompt = f'{document_to_plain_text(other_context)}\n{question}'
-        else:
-            negative_input_prompt = f'{document_to_plain_text(other_context)}\n\n{question}'
-    return ((positive_input_prompt, true_answer),
-            (negative_input_prompt, 'К сожалению, я не могу ответить на ваш вопрос.'))
+    return question, document_to_plain_text(cur_context), true_answer
 
 
 def main():
@@ -194,8 +163,8 @@ def main():
         data = json.load(fp)
     random.shuffle(data)
     gigachat_logger.info(f'{len(data)} samples are loaded.')
-    n_test = min(500, round(0.25 * len(data)))
-    n_val = min(100, round(0.05 * len(data)))
+    n_test = min(2000, round(0.25 * len(data)))
+    n_val = min(1000, round(0.05 * len(data)))
     n_train = len(data) - n_test - n_val
     if (n_train <= 1) or (n_test <= 1) or (n_val <= 1):
         err_msg = f'The dataset "{input_fname}" is too small, and it cannot be split to train and test part.'
@@ -219,14 +188,13 @@ def main():
         counter = 1
         with codecs.open(output_testset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
             data_writer = csv.writer(fp, delimiter=',', quotechar='"')
-            data_writer.writerow(['input', 'target'])
+            data_writer.writerow(['question', 'context', 'response'])
             for idx, val in enumerate(tqdm(data_for_testing)):
                 other_idx = random.choice(all_indices)
                 while other_idx == idx:
                     other_idx = random.choice(all_indices)
                 prepared = prepare_positive_and_negative_sample(
                     cur_document=val,
-                    other_document=data_for_testing[other_idx],
                     credentials=args.credentials,
                     full_document=not args.paragraph_only
                 )
@@ -234,8 +202,7 @@ def main():
                     warn_msg = f'The document "{val["title"]}" is not processed.'
                     gigachat_logger.warning(warn_msg)
                 else:
-                    data_writer.writerow([prepared[0][0], prepared[0][1]])
-                    data_writer.writerow([prepared[1][0], prepared[1][1]])
+                    data_writer.writerow([prepared[0], prepared[1], prepared[2]])
                     counter += 1
         gigachat_logger.info(f'{counter} documents from {len(data_for_testing)} are prepared for the test set.')
     del data_for_testing
@@ -247,14 +214,13 @@ def main():
         counter = 1
         with codecs.open(output_valset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
             data_writer = csv.writer(fp, delimiter=',', quotechar='"')
-            data_writer.writerow(['input', 'target'])
+            data_writer.writerow(['question', 'context', 'response'])
             for idx, val in enumerate(tqdm(data_for_validation)):
                 other_idx = random.choice(all_indices)
                 while other_idx == idx:
                     other_idx = random.choice(all_indices)
                 prepared = prepare_positive_and_negative_sample(
                     cur_document=val,
-                    other_document=data_for_validation[other_idx],
                     credentials=args.credentials,
                     full_document=not args.paragraph_only
                 )
@@ -262,8 +228,7 @@ def main():
                     warn_msg = f'The document "{val["title"]}" is not processed.'
                     gigachat_logger.warning(warn_msg)
                 else:
-                    data_writer.writerow([prepared[0][0], prepared[0][1]])
-                    data_writer.writerow([prepared[1][0], prepared[1][1]])
+                    data_writer.writerow([prepared[0], prepared[1], prepared[2]])
                     counter += 1
         gigachat_logger.info(
             f'{counter} documents from {len(data_for_validation)} are prepared for the validation set.')
@@ -276,14 +241,13 @@ def main():
         counter = 1
         with codecs.open(output_trainset_fname, mode='w', encoding='utf-8', errors='ignore') as fp:
             data_writer = csv.writer(fp, delimiter=',', quotechar='"')
-            data_writer.writerow(['input', 'target'])
+            data_writer.writerow(['question', 'context', 'response'])
             for idx, val in enumerate(tqdm(data_for_training)):
                 other_idx = random.choice(all_indices)
                 while other_idx == idx:
                     other_idx = random.choice(all_indices)
                 prepared = prepare_positive_and_negative_sample(
                     cur_document=val,
-                    other_document=data_for_training[other_idx],
                     credentials=args.credentials,
                     full_document=not args.paragraph_only
                 )
@@ -291,8 +255,7 @@ def main():
                     warn_msg = f'The document "{val["title"]}" is not processed.'
                     gigachat_logger.warning(warn_msg)
                 else:
-                    data_writer.writerow([prepared[0][0], prepared[0][1]])
-                    data_writer.writerow([prepared[1][0], prepared[1][1]])
+                    data_writer.writerow([prepared[0], prepared[1], prepared[2]])
                     counter += 1
         gigachat_logger.info(f'{counter} documents from {len(data_for_training)} are prepared for the training set.')
 
