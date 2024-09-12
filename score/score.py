@@ -69,9 +69,9 @@ def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerToken
         with torch.no_grad():
             outputs = embedder[1](input_ids=batched_input_ids, attention_mask=batched_attention_mask,
                                   global_attention_mask=torch.tensor(global_attention_mask),
-                                  return_dict=True)
+                                  return_dict=True, output_hidden_states=True)
         del global_attention_mask
-        last_hidden_state = outputs.last_hidden_state.numpy()
+        last_hidden_state = outputs.hidden_states[-1].numpy()
         del outputs
         for idx in range(last_hidden_state.shape[0]):
             if len(useful_token_indices[text_idx]) > 0:
