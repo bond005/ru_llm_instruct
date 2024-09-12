@@ -3,7 +3,7 @@ import sys
 import unittest
 
 import numpy as np
-from transformers import LongformerModel, LongformerTokenizerFast
+from transformers import LongformerForMaskedLM, LongformerTokenizerFast
 
 try:
     from score.score import calculate_token_embeddings, bert_score
@@ -17,7 +17,7 @@ class TestScore(unittest.TestCase):
     def setUpClass(cls) -> None:
         longformer_name = 'kazzand/ru-longformer-tiny-16384'
         cls.tokenizer = LongformerTokenizerFast.from_pretrained(longformer_name)
-        cls.model = LongformerModel.from_pretrained(longformer_name)
+        cls.model = LongformerForMaskedLM.from_pretrained(longformer_name)
 
     def test_calculate_token_embeddings_pos01(self):
         texts = ['Мама мыла раму.', '', 'Папа мыл синхрофазотрон!']

@@ -4,13 +4,13 @@ from typing import List, Tuple, Optional, Union
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import torch
-from transformers import LongformerModel, LongformerTokenizerFast
+from transformers import LongformerForMaskedLM, LongformerTokenizerFast
 
 
 MAX_TEXT_LEN: int = 16_000
 
 
-def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerTokenizerFast, LongformerModel],
+def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerTokenizerFast, LongformerForMaskedLM],
                                batch_size: Optional[int] = None) -> List[Union[np.ndarray, None]]:
     input_ids = []
     attention_mask = []
@@ -86,7 +86,7 @@ def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerToken
 
 
 def bert_score(references: List[str], predictions: List[str],
-               evaluator: Tuple[LongformerTokenizerFast, LongformerModel],
+               evaluator: Tuple[LongformerTokenizerFast, LongformerForMaskedLM],
                batch_size: Optional[int] = None) -> List[float]:
     if len(references) != len(predictions):
         err_msg = f'The reference texts do not correspond to the predicted texts! ' \

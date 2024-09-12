@@ -18,7 +18,7 @@ from nltk import wordpunct_tokenize
 import numpy as np
 from tqdm import trange, tqdm
 from transformers import GPT2Tokenizer, GenerationConfig
-from transformers import LongformerTokenizerFast, LongformerModel
+from transformers import LongformerTokenizerFast, LongformerForMaskedLM
 from turbot5 import T5ForConditionalGeneration
 import torch
 
@@ -380,12 +380,12 @@ def main():
     if args.eval_task is not None:
         eval_tasks = set()
         for it in args.eval_task:
-            eval_tasks.add(it.lower().strip())
+            eval_tasks.add(it.strip())
         fredt5_training_logger.info(f'The evaluation tasks for monitoring are: {eval_tasks}.')
 
     scorer = (
         LongformerTokenizerFast.from_pretrained(args.eval_model),
-        LongformerModel.from_pretrained(args.eval_model)
+        LongformerForMaskedLM.from_pretrained(args.eval_model)
     )
 
     dataset_path = os.path.normpath(args.data_name)
