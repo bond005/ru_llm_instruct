@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 import codecs
 import csv
+import gc
 import logging
 import os
 import random
@@ -26,6 +27,8 @@ def main():
                         help='The output name of CSV file with structured and verified RuStackoverflow.')
     parser.add_argument('-m', '--model', dest='model_name', type=str, required=True,
                         help='The DeepSeekCoder model name.')
+    parser.add_argument('--maxlen', dest='maxlen', type=int, required=False, default=None,
+                        help='The maximal length of the prompt.')
     args = parser.parse_args()
 
     input_dataset_name = os.path.normpath(args.input_name)
@@ -99,11 +102,20 @@ def main():
             ]
             inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True,
                                                    return_tensors='pt').to(model.device)
-            outputs = model.generate(inputs, max_new_tokens=10, do_sample=False, top_k=50, top_p=0.95,
-                                     num_return_sequences=1, eos_token_id=tokenizer.eos_token_id,
-                                     pad_token_id=tokenizer.eos_token_id)
-            result = ' '.join(tokenizer.decode(outputs[0][len(inputs[0]):], skip_special_tokens=True).strip().split())
-            data_writer.writerow([sample['question'], sample['answer'], result])
+            if args.maxlen is None:
+                can_continue = True
+            else:
+                can_continue = (len(inputs[0]) <= args.maxlen)
+            if can_continue:
+                outputs = model.generate(inputs, max_new_tokens=10, do_sample=False, top_k=50, top_p=0.95,
+                                         num_return_sequences=1, eos_token_id=tokenizer.eos_token_id,
+                                         pad_token_id=tokenizer.eos_token_id)
+                result = ' '.join(tokenizer.decode(outputs[0][len(inputs[0]):], skip_special_tokens=True).strip().split())
+                data_writer.writerow([sample['question'], sample['answer'], result])
+                del outputs, result
+            del inputs, messages
+            gc.collect()
+            torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':
