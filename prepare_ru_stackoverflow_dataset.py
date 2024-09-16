@@ -138,7 +138,6 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda()
 
-
     with codecs.open(output_fname, mode='w', encoding='utf-8', errors='ignore', buffering=0) as fp:
         for sample in tqdm(questions_with_answers):
             inputs_ids = tokenizer(sample['prompt_for_verification'], return_tensors='pt').input_ids.to(model.device)
