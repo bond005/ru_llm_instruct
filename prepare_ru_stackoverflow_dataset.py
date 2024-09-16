@@ -57,7 +57,17 @@ def main():
                for it in filtered_dataset['answers']]
     del dataset, filtered_dataset
 
-    for question_text, answers_on_question in zip(questions, answers):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    prompt = ('You are a programming specialist who also knows Russian. '
+              'Please read the question and the answer to this question. '
+              'Then think carefully and tell me if this answer is correct, '
+              'complete enough and as clear as possible an answer to the question asked? '
+              'Just write "yes" or "no", that\'s all.\n\n\n'
+              'The question:\n\n\n{question}\n\n\nThe answer to this question:\n\n\n{answer}\n\n\n'
+              'Your verdict on the correctness, completeness and clarity of the answer to the question '
+              '(only "yes" or "no"): ')
+    max_seq_len = 0
+    for question_text, answers_on_question in tqdm(zip(questions, answers), total=len(questions)):
         if len(question_text) > 0:
             variants_of_answer = []
             for answer_text, answer_score in zip(answers_on_question[0], answers_on_question[1]):
@@ -70,50 +80,57 @@ def main():
                     )
             if len(variants_of_answer) > 0:
                 variants_of_answer.sort(key=lambda it: (-it['score'], -len(it['answer']), it['answer']))
-                questions_with_answers.append(
+                messages = [
                     {
-                        'question': question_text,
-                        'answer': variants_of_answer[0]['answer']
+                        'role': 'user',
+                        'content': prompt.format(question=question_text, answer=variants_of_answer[0]['answer'])
                     }
-                )
+                ]
+                tokens = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
+                if not isinstance(tokens, list):
+                    err_msg = f'The message cannot be tokenized! {messages}'
+                    ru_stackoverflow_logger.error(err_msg)
+                    raise RuntimeError(err_msg)
+                for cur_token in tokens:
+                    if not isinstance(cur_token, int):
+                        err_msg = f'The message cannot be tokenized! {messages}'
+                        ru_stackoverflow_logger.error(err_msg)
+                        raise RuntimeError(err_msg)
+                if args.maxlen is None:
+                    can_add = True
+                else:
+                    can_add = (len(tokens) <= args.maxlen)
+                if can_add:
+                    if len(tokens) > max_seq_len:
+                        max_seq_len = len(tokens)
+                    questions_with_answers.append(
+                        {
+                            'question': question_text,
+                            'answer': variants_of_answer[0]['answer'],
+                            'prompt_for_verification': tokenizer.decode(tokens, skip_special_tokens=True)
+                        }
+                    )
+                del messages, tokens
             del variants_of_answer
     print(f'There are {len(questions_with_answers)} samples in the prepared RuStackoverflow dataset.')
+    print(f'The maximal prompt length is {max_seq_len}.')
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda()
 
-    prompt = ('You are a programming specialist who also knows Russian. '
-              'Please read the question and the answer to this question. '
-              'Then think carefully and tell me if this answer is correct, '
-              'complete enough and as clear as possible an answer to the question asked? '
-              'Just write "yes" or "no", that\'s all.\n\n\n'
-              'The question:\n\n\n{question}\n\n\nThe answer to this question:\n\n\n{answer}\n\n\n'
-              'Your verdict on the correctness, completeness and clarity of the answer to the question '
-              '(only "yes" or "no"): ')
+
     with codecs.open(output_fname, mode='w', encoding='utf-8', errors='ignore', buffering=0) as fp:
         data_writer = csv.writer(fp, delimiter=',', quotechar='"')
         data_writer.writerow(['QUESTION', 'ANSWER', 'VERIFICATION'])
         for sample in tqdm(questions_with_answers):
-            messages = [
-                {
-                    'role': 'user',
-                    'content': prompt.format(question=sample['question'], answer=sample['answer'])
-                }
-            ]
-            inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True,
+            inputs = tokenizer.apply_chat_template(sample['prompt_for_verification'],
                                                    return_tensors='pt').to(model.device)
-            if args.maxlen is None:
-                can_continue = True
-            else:
-                can_continue = (len(inputs[0]) <= args.maxlen)
-            if can_continue:
-                outputs = model.generate(inputs, max_new_tokens=10, do_sample=False, top_k=50, top_p=0.95,
-                                         num_return_sequences=1, eos_token_id=tokenizer.eos_token_id,
-                                         pad_token_id=tokenizer.eos_token_id)
-                result = ' '.join(tokenizer.decode(outputs[0][len(inputs[0]):], skip_special_tokens=True).strip().split())
-                data_writer.writerow([sample['question'], sample['answer'], result])
-                del outputs, result
-            del inputs, messages
+            seqlen = len(inputs[0])
+            outputs = model.generate(inputs, max_new_tokens=5, do_sample=False, top_k=50, top_p=0.95,
+                                     num_return_sequences=1, eos_token_id=tokenizer.eos_token_id,
+                                     pad_token_id=tokenizer.eos_token_id)
+            result = ' '.join(tokenizer.decode(outputs[0][seqlen:], skip_special_tokens=True).strip().split())
+            data_writer.writerow([sample['question'], sample['answer'], result])
+            del outputs, result, inputs
             gc.collect()
             torch.cuda.empty_cache()
 
