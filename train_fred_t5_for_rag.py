@@ -15,6 +15,7 @@ import numpy as np
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig
 from transformers import LongformerTokenizerFast, LongformerForMaskedLM
+from transformers import Adafactor
 from turbot5 import T5ForConditionalGeneration
 import torch
 
@@ -113,8 +114,9 @@ def main():
     parser.add_argument('--batch', dest='batch_size', type=int, required=True,
                         help='The mini-batch size for FRED-T5 training.')
     parser.add_argument('--alg', dest='algorithm', type=str, required=False,
-                        choices=['rmsprop', 'adamw', 'sgd', 'adam8bit'],
-                        default='adamw', help='The training algorithm (RMSprop, AdamW, SGD, or Adam8Bit).')
+                        choices=['rmsprop', 'adamw', 'sgd', 'adam8bit', 'adafactor'],
+                        default='adafactor', help='The training algorithm (RMSprop, AdamW, SGD, Adafactor, '
+                                                  'or Adam8Bit).')
     parser.add_argument('--eval_batch', dest='eval_batch_size', type=int, required=False, default=None,
                         help='The mini-batch size for FRED-T5 evaluation.')
     parser.add_argument('--eval_model', dest='eval_model', type=str, required=False,
@@ -337,6 +339,15 @@ def main():
                 params=[p for p in model.parameters() if p.requires_grad],
                 lr=args.learning_rate
             )
+    elif args.algorithm == 'adafactor':
+        optimizer = Adafactor(
+            params=[p for p in model.parameters() if p.requires_grad],
+            lr=args.learning_rate,
+            scale_parameter=False,
+            relative_step=False,
+            warmup_init=False,
+            clip_threshold=1.0
+        )
     else:
         optimizer = bnb.optim.Adam8bit(
             params=[p for p in model.parameters() if p.requires_grad],
