@@ -126,6 +126,8 @@ def main():
                         help='The learning rate.')
     parser.add_argument('--maxtokens', dest='maxtokens', type=int, required=False, default=None,
                         help='The maximal number of tokens for the training inputs.')
+    parser.add_argument('--eval_maxtokens', dest='eval_maxtokens', type=int, required=False, default=None,
+                        help='The maximal number of tokens for the evaluation inputs.')
     parser.add_argument('--iters', dest='iters_per_epoch', type=int, required=False, default=None,
                         help='The iterations per epoch.')
     parser.add_argument('--no_pre_eval', dest='no_pre_eval', action='store_true', required=False,
@@ -232,6 +234,12 @@ def main():
         fredt5_training_logger.error((str(err)))
         raise
     fredt5_training_logger.info(f'There are {len(valset)} samples in the validation set.')
+    if args.eval_maxtokens is not None:
+        valset = valset.filter(
+            lambda it: ((len(tokenizer.tokenize(it['question'])) + len(tokenizer.tokenize(it['context']))) <= args.eval_maxtokens) and
+                       (len(tokenizer.tokenize(it['response'])) < max(3, args.eval_maxtokens // 2))
+        )
+        fredt5_training_logger.info(f'There are {len(valset)} samples in the validation set after filtering.')
 
     questions = [str(it) for it in trainset['question']]
     documents = [str(it) for it in trainset['context']]

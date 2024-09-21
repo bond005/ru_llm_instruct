@@ -1,4 +1,5 @@
 import copy
+import gc
 from typing import List, Optional
 
 import torch
@@ -26,6 +27,7 @@ def fix_recognition_error(texts: List[str], tokenizer: GPT2Tokenizer, config: Ge
         ' '.join(tokenizer.decode(cur, skip_special_tokens=True).strip().split()) for cur in out
     ]
     del out
+    gc.collect()
     torch.cuda.empty_cache()
     united_results = []
     idx = 0
@@ -58,6 +60,7 @@ def generate_answer(questions: List[str], tokenizer: GPT2Tokenizer, config: Gene
         tokenizer.decode(cur, skip_special_tokens=True).strip().replace('\r\n', '\n') for cur in out
     ]
     del out
+    gc.collect()
     torch.cuda.empty_cache()
     united_answers = []
     idx = 0
