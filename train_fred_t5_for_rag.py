@@ -245,14 +245,22 @@ def main():
     documents = [str(it) for it in trainset['context']]
     answers = [str(it) for it in trainset['response']]
     del trainset
-    rag_trainset = list(zip(questions, documents, answers))
+    rag_trainset = list(zip(
+        questions,
+        documents,
+        map(lambda x: x if x.endswith('</s>') else (x + '</s>'), answers)
+    ))
     del questions, documents, answers
 
     questions = [str(it) for it in valset['question']]
     documents = [str(it) for it in valset['context']]
     answers = [str(it) for it in valset['response']]
     del valset
-    rag_valset = list(zip(questions, documents, answers))
+    rag_valset = list(zip(
+        questions,
+        documents,
+        map(lambda x: x if x.endswith('</s>') else (x + '</s>'), answers)
+    ))
     del questions, documents, answers
 
     n_training_samples = len(rag_trainset)
@@ -279,7 +287,10 @@ def main():
             additional_inputs += [str(it) for it in additional_trainset['input']]
             additional_targets += [str(it) for it in additional_trainset['target']]
             del additional_trainset
-        additional_trainset = list(zip(additional_inputs, additional_targets))
+        additional_trainset = list(zip(
+            additional_inputs,
+            map(lambda x: x if x.endswith('</s>') else (x + '</s>'), additional_targets)
+        ))
         n_training_samples += len(additional_trainset)
     else:
         additional_trainset = None
