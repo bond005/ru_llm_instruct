@@ -11,6 +11,7 @@ MAX_TEXT_LEN: int = 16_000
 
 
 def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerTokenizerFast, LongformerForMaskedLM],
+                               layer_idx: Optional[int] = -1,
                                batch_size: Optional[int] = None) -> List[Union[np.ndarray, None]]:
     input_ids = []
     attention_mask = []
@@ -71,7 +72,7 @@ def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerToken
                                   global_attention_mask=torch.tensor(global_attention_mask),
                                   return_dict=True, output_hidden_states=True)
         del global_attention_mask
-        last_hidden_state = outputs.hidden_states[-1].numpy()
+        last_hidden_state = outputs.hidden_states[layer_idx].numpy()
         del outputs
         for idx in range(last_hidden_state.shape[0]):
             if len(useful_token_indices[text_idx]) > 0:
@@ -87,13 +88,14 @@ def calculate_token_embeddings(texts: List[str], embedder: Tuple[LongformerToken
 
 def bert_score(references: List[str], predictions: List[str],
                evaluator: Tuple[LongformerTokenizerFast, LongformerForMaskedLM],
+               layer_idx: Optional[int] = -1,
                batch_size: Optional[int] = None) -> List[float]:
     if len(references) != len(predictions):
         err_msg = f'The reference texts do not correspond to the predicted texts! ' \
                   f'{len(references)} != {len(predictions)}'
         raise ValueError(err_msg)
-    embeddings_of_references = calculate_token_embeddings(references, evaluator, batch_size)
-    embeddings_of_predictions = calculate_token_embeddings(predictions, evaluator, batch_size)
+    embeddings_of_references = calculate_token_embeddings(references, evaluator, layer_idx, batch_size)
+    embeddings_of_predictions = calculate_token_embeddings(predictions, evaluator, layer_idx, batch_size)
     scores = []
     for ref, pred in zip(embeddings_of_references, embeddings_of_predictions):
         if (ref is None) or (pred is None):

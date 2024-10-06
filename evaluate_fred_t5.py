@@ -9,7 +9,7 @@ import sys
 
 import numpy as np
 from transformers import T5ForConditionalGeneration, GPT2Tokenizer, GenerationConfig
-from transformers import LongformerTokenizerFast, LongformerModel
+from transformers import LongformerTokenizerFast, LongformerForMaskedLM
 import torch
 
 from instructions.instructions import evaluate
@@ -97,7 +97,7 @@ def main():
     try:
         scorer = (
             LongformerTokenizerFast.from_pretrained(args.eval_model),
-            LongformerModel.from_pretrained(args.eval_model)
+            LongformerForMaskedLM.from_pretrained(args.eval_model)
         )
     except Exception as err:
         err_msg = f'The evaluator for BERT score cannot be loaded from {args.eval_model}. {str(err)}'

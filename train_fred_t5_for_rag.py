@@ -11,6 +11,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import bitsandbytes as bnb
 from datasets import load_dataset
+from fuzzywuzzy import fuzz
 import numpy as np
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig
@@ -56,26 +57,39 @@ def prepare_sample_for_rag(question: str, context: str, true_answer: str) -> Tup
 
 
 def generate_samples_for_minibatch(rag_data_training: List[Tuple[str, str, str]],
-                                   additional_data_for_training: Optional[List[Tuple[str, str]]],
+                                   additional_data_for_training: Optional[List[List[Tuple[str, str]]]],
                                    tokenizer: GPT2Tokenizer, minibatch_size: int) -> List[Tuple[List[int], List[int]]]:
     samples_for_batch = []
     if additional_data_for_training is not None:
-        selected_samples = random.sample(
-            population=additional_data_for_training,
-            k=minibatch_size // 2
-        )
-        for current_sample in selected_samples:
+        for _ in range(minibatch_size // 2):
+            selected_dataset = random.choice(additional_data_for_training)
+            selected_sample = random.choice(selected_dataset)
+            del selected_dataset
             samples_for_batch.append((
-                tokenizer.encode(current_sample[0]),
-                tokenizer.encode(current_sample[1])
+                tokenizer.encode(selected_sample[0]),
+                tokenizer.encode(selected_sample[1])
             ))
-        del selected_samples
+            del selected_sample
     selected_samples = random.sample(
         population=rag_data_training,
         k=minibatch_size - len(samples_for_batch)
     )
     for question, context, target in selected_samples:
-        sample = prepare_sample_for_rag(question, context, target)
+        if random.random() > 0.1:
+            sample = prepare_sample_for_rag(question, context, target)
+        else:
+            negative_answers = [
+                'В документе не содержится ответа на ваш вопрос.</s>',
+                'К сожалению, данный документ не содержит ответ на ваш вопрос.</s>',
+                'Прошу простить, но я не могу найти ответ на ваш вопрос в указанном вами документе.</s>',
+                'Весьма сожалею, но в документе нет ответа на поставленный вопрос.</s>',
+                'В документе отсутствует ответ на вопрос.</s>',
+                'В данном документе нет ответа на ваш вопрос. Искренне прошу простить за то, что не смог вам помочь.</s>'
+            ]
+            _, another_context, _ = random.choice(rag_data_training)
+            while fuzz.token_sort_ratio(context, another_context, force_ascii=False) > 70:
+                _, another_context, _ = random.choice(rag_data_training)
+            sample = prepare_sample_for_rag(question, another_context, random.choice(negative_answers))
         samples_for_batch.append((
             tokenizer.encode(sample[0]),
             tokenizer.encode(sample[1])
@@ -265,8 +279,7 @@ def main():
 
     n_training_samples = len(rag_trainset)
     if len(additional_datasets) > 0:
-        additional_inputs = []
-        additional_targets = []
+        additional_trainsets = []
         for it in additional_datasets:
             try:
                 additional_trainset = load_dataset(it, split='train')
@@ -284,16 +297,17 @@ def main():
                 info_msg = f'There are {len(additional_trainset)} samples in the additional training set ' \
                            f'{os.path.basename(it)} after filtering.'
                 fredt5_training_logger.info(info_msg)
-            additional_inputs += [str(it) for it in additional_trainset['input']]
-            additional_targets += [str(it) for it in additional_trainset['target']]
+            additional_inputs = [str(it) for it in additional_trainset['input']]
+            additional_targets = [str(it) for it in additional_trainset['target']]
             del additional_trainset
-        additional_trainset = list(zip(
-            additional_inputs,
-            map(lambda x: x if x.endswith('</s>') else (x + '</s>'), additional_targets)
-        ))
-        n_training_samples += len(additional_trainset)
+            additional_trainsets.append(list(zip(
+                map(lambda x: x[4:] if x.startswith('<LM>') else x, additional_inputs),
+                map(lambda x: x if x.endswith('</s>') else (x + '</s>'), additional_targets)
+            )))
+            del additional_inputs, additional_targets
+            n_training_samples += len(additional_trainsets[-1])
     else:
-        additional_trainset = None
+        additional_trainsets = None
 
     gc.collect()
 
@@ -311,8 +325,9 @@ def main():
     tokenizer.save_pretrained(finetuned_dir_name)
 
     max_text_len = max([len(it[-1]) for it in rag_trainset] + [len(it[-1]) for it in rag_valset])
-    if additional_trainset is not None:
-        max_text_len = max([len(it[-1]) for it in additional_trainset] + [max_text_len])
+    if additional_trainsets is not None:
+        for additional_trainset in additional_trainsets:
+            max_text_len = max([len(it[-1]) for it in additional_trainset] + [max_text_len])
     fredt5_training_logger.info(f'The maximal subwords in the generated text is {max_text_len}.')
 
     generation_max_length = 3 + round(1.1 * max_text_len)
@@ -385,7 +400,7 @@ def main():
         optimizer,
         base_lr=args.learning_rate,
         max_lr=10.0 * args.learning_rate,
-        step_size_up=min(3 * n_training_batches, 3000),
+        step_size_up=min(10 * n_training_batches, 3000),
         cycle_momentum=False,
         mode='triangular2'
     )
@@ -412,7 +427,7 @@ def main():
         total_training_loss_val = 0.0
         for _ in trange(n_training_batches):
             samples_in_batch = generate_samples_for_minibatch(
-                rag_trainset, additional_trainset, tokenizer,
+                rag_trainset, additional_trainsets, tokenizer,
                 minibatch_size=minibatch_size
             )
             for input_sequence, output_sequence in samples_in_batch:

@@ -1,9 +1,11 @@
 augmentex==1.2.1
 datasets>=2.14.1
 evaluate>=0.4.1
+fuzzywuzzy
 matplotlib
 nltk
 numpy
+python-Levenshtein
 scikit-learn>=1.0.1
 scipy
 seqeval>=1.2.0

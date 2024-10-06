@@ -11,7 +11,7 @@ from sklearn.metrics import f1_score
 import spacy
 from tqdm import trange
 from transformers import GPT2Tokenizer, GenerationConfig, T5ForConditionalGeneration
-from transformers import LongformerTokenizerFast, LongformerModel
+from transformers import LongformerTokenizerFast, LongformerForMaskedLM
 
 from inference.inference import generate_answer, fix_recognition_error
 from ner.ner import find_entities_in_text
@@ -470,7 +470,7 @@ def evaluate_danet(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2To
 
 def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT2Tokenizer,
                       config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
-                      evaluator: Tuple[LongformerTokenizerFast, LongformerModel],
+                      evaluator: Tuple[LongformerTokenizerFast, LongformerForMaskedLM],
                       max_time: Optional[float] = None) -> Tuple[float, List[Dict[str, str]]]:
     if len(data_for_validation) < 1:
         raise ValueError(f'The validation data are empty!')
@@ -503,6 +503,7 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
         references=references,
         predictions=candidates,
         batch_size=64,
+        layer_idx=-2,
         evaluator=evaluator
     )
     if len(references) != len(scores):
@@ -518,7 +519,7 @@ def evaluate_any_task(data_for_validation: List[Tuple[str, str]], tokenizer: GPT
 
 def evaluate(data_for_validation: Dict[str, List[Tuple[str, str]]],
              tokenizer: GPT2Tokenizer, config: GenerationConfig, model: T5ForConditionalGeneration, minibatch: int,
-             evaluator: Tuple[LongformerTokenizerFast, LongformerModel]) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
+             evaluator: Tuple[LongformerTokenizerFast, LongformerForMaskedLM]) -> Tuple[float, Dict[str, Tuple[float, List[Dict[str, str]]]]]:
     res = dict()
     scores = []
     for task in data_for_validation:
