@@ -194,7 +194,7 @@ def main():
 
     with codecs.open(output_csv_fname_for_validation, mode='w', encoding='utf-8') as fp:
         data_writer = csv.writer(fp, delimiter=',', quotechar='"')
-        data_writer.writerow(['input', 'target'])
+        data_writer.writerow(['instruction', 'context', 'target'])
         for val_sample in samples_for_validation:
             text, entities = loaded[val_sample]
             instruction = INSTRUCTIONS_FOR_ORGANIZATIONS[0]
